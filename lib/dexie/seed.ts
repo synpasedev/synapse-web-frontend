@@ -1,0 +1,676 @@
+import { localDb } from './db';
+import { Note, Block, Link, Workspace, Template, Database, Whiteboard } from '@/types/domain';
+
+export const DEFAULT_WORKSPACE_ID = 'ws-default-synapse';
+
+export async function ensureSeedData() {
+  if (typeof window === 'undefined') return;
+
+  const count = await localDb.workspaces.count();
+  if (count > 0) return; // Already seeded
+
+  const now = new Date().toISOString();
+  const userId = 'local-user-1';
+
+  // 1. Default Workspace
+  const defaultWorkspace: Workspace = {
+    id: DEFAULT_WORKSPACE_ID,
+    name: 'Personal Brain',
+    slug: 'personal-brain',
+    icon: '🧠',
+    owner_id: userId,
+    created_at: now,
+    updated_at: now,
+    role: 'owner',
+  };
+
+  // 2. Default Notes (Interconnected for the Graph View)
+  const note1Id = 'note-welcome';
+  const note2Id = 'note-architecture';
+  const note3Id = 'note-graph-guide';
+  const note4Id = 'note-ai-engine';
+
+  const notes: Note[] = [
+    {
+      id: note1Id,
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      parent_id: null,
+      title: 'Welcome to Synapse ⚡',
+      icon: '🚀',
+      cover_url: null,
+      is_favorite: true,
+      is_archived: false,
+      is_public: false,
+      created_by: userId,
+      updated_by: userId,
+      created_at: now,
+      updated_at: now,
+      version: 1,
+    },
+    {
+      id: note2Id,
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      parent_id: null,
+      title: 'Local-First Architecture',
+      icon: '🏛️',
+      cover_url: null,
+      is_favorite: true,
+      is_archived: false,
+      is_public: false,
+      created_by: userId,
+      updated_by: userId,
+      created_at: now,
+      updated_at: now,
+      version: 1,
+    },
+    {
+      id: note3Id,
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      parent_id: null,
+      title: 'Knowledge Graph & Linking',
+      icon: '🕸️',
+      cover_url: null,
+      is_favorite: false,
+      is_archived: false,
+      is_public: false,
+      created_by: userId,
+      updated_by: userId,
+      created_at: now,
+      updated_at: now,
+      version: 1,
+    },
+    {
+      id: note4Id,
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      parent_id: null,
+      title: 'AI Assistants & Workflows',
+      icon: '🤖',
+      cover_url: null,
+      is_favorite: false,
+      is_archived: false,
+      is_public: false,
+      created_by: userId,
+      updated_by: userId,
+      created_at: now,
+      updated_at: now,
+      version: 1,
+    },
+  ];
+
+  // 3. Blocks for Note 1 (Welcome)
+  const blocks: Block[] = [
+    {
+      id: 'b-101',
+      note_id: note1Id,
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      parent_block_id: null,
+      type: 'heading_1',
+      content: { text: 'Welcome to Synapse OS' },
+      properties: { level: 1 },
+      sort_order: 1000,
+      created_by: userId,
+      updated_by: userId,
+      created_at: now,
+      updated_at: now,
+      version: 1,
+    },
+    {
+      id: 'b-102',
+      note_id: note1Id,
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      parent_block_id: null,
+      type: 'paragraph',
+      content: {
+        text: 'Synapse brings together the editing experience of Notion, the graph linking of Obsidian, and the local-first speed of Dexie.js into a unified developer workspace.',
+      },
+      properties: {},
+      sort_order: 2000,
+      created_by: userId,
+      updated_by: userId,
+      created_at: now,
+      updated_at: now,
+      version: 1,
+    },
+    {
+      id: 'b-103',
+      note_id: note1Id,
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      parent_block_id: null,
+      type: 'callout',
+      content: {
+        text: '💡 Quick Tip: Type / anywhere in the editor to open the block command menu, or type [[ to trigger note auto-completion!',
+      },
+      properties: { icon: '💡' },
+      sort_order: 3000,
+      created_by: userId,
+      updated_by: userId,
+      created_at: now,
+      updated_at: now,
+      version: 1,
+    },
+    {
+      id: 'b-104',
+      note_id: note1Id,
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      parent_block_id: null,
+      type: 'heading_2',
+      content: { text: 'Core Concepts' },
+      properties: { level: 2 },
+      sort_order: 4000,
+      created_by: userId,
+      updated_by: userId,
+      created_at: now,
+      updated_at: now,
+      version: 1,
+    },
+    {
+      id: 'b-105',
+      note_id: note1Id,
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      parent_block_id: null,
+      type: 'bullet_list',
+      content: {
+        text: 'Explore our [[Local-First Architecture]] to see how zero-latency offline persistence works.',
+      },
+      properties: {},
+      sort_order: 5000,
+      created_by: userId,
+      updated_by: userId,
+      created_at: now,
+      updated_at: now,
+      version: 1,
+    },
+    {
+      id: 'b-106',
+      note_id: note1Id,
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      parent_block_id: null,
+      type: 'bullet_list',
+      content: {
+        text: 'Check out the [[Knowledge Graph & Linking]] view to see nodes in 2D force simulation.',
+      },
+      properties: {},
+      sort_order: 6000,
+      created_by: userId,
+      updated_by: userId,
+      created_at: now,
+      updated_at: now,
+      version: 1,
+    },
+    {
+      id: 'b-107',
+      note_id: note1Id,
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      parent_block_id: null,
+      type: 'bullet_list',
+      content: {
+        text: 'Use [[AI Assistants & Workflows]] to summarize notes or expand thoughts.',
+      },
+      properties: {},
+      sort_order: 7000,
+      created_by: userId,
+      updated_by: userId,
+      created_at: now,
+      updated_at: now,
+      version: 1,
+    },
+
+    // Blocks for Note 2 (Architecture)
+    {
+      id: 'b-201',
+      note_id: note2Id,
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      parent_block_id: null,
+      type: 'heading_1',
+      content: { text: 'Local-First Storage Engine' },
+      properties: { level: 1 },
+      sort_order: 1000,
+      created_by: userId,
+      updated_by: userId,
+      created_at: now,
+      updated_at: now,
+      version: 1,
+    },
+    {
+      id: 'b-202',
+      note_id: note2Id,
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      parent_block_id: null,
+      type: 'paragraph',
+      content: {
+        text: 'All updates are committed to IndexedDB with optimistic UI updates. When internet connection is active, our monotonic queue reconciles with Supabase PostgreSQL.',
+      },
+      properties: {},
+      sort_order: 2000,
+      created_by: userId,
+      updated_by: userId,
+      created_at: now,
+      updated_at: now,
+      version: 1,
+    },
+    {
+      id: 'b-203',
+      note_id: note2Id,
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      parent_block_id: null,
+      type: 'code',
+      content: {
+        text: '// Conflict resolution: Block-level Last-Write-Wins\nif (remote.updated_at > local.updated_at) {\n  applyRemote(remote);\n} else {\n  pushToCloud(local);\n}',
+      },
+      properties: { language: 'typescript' },
+      sort_order: 3000,
+      created_by: userId,
+      updated_by: userId,
+      created_at: now,
+      updated_at: now,
+      version: 1,
+    },
+
+    // Blocks for Note 3 (Graph)
+    {
+      id: 'b-301',
+      note_id: note3Id,
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      parent_block_id: null,
+      type: 'heading_1',
+      content: { text: 'Bidirectional Linking & Graphs' },
+      properties: { level: 1 },
+      sort_order: 1000,
+      created_by: userId,
+      updated_by: userId,
+      created_at: now,
+      updated_at: now,
+      version: 1,
+    },
+    {
+      id: 'b-302',
+      note_id: note3Id,
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      parent_block_id: null,
+      type: 'paragraph',
+      content: {
+        text: 'When you link to [[Welcome to Synapse ⚡]] or [[AI Assistants & Workflows]], edges are automatically created in the interactive D3 Canvas graph.',
+      },
+      properties: {},
+      sort_order: 2000,
+      created_by: userId,
+      updated_by: userId,
+      created_at: now,
+      updated_at: now,
+      version: 1,
+    },
+
+    // Blocks for Note 4 (AI)
+    {
+      id: 'b-401',
+      note_id: note4Id,
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      parent_block_id: null,
+      type: 'heading_1',
+      content: { text: 'Pluggable AI System' },
+      properties: { level: 1 },
+      sort_order: 1000,
+      created_by: userId,
+      updated_by: userId,
+      created_at: now,
+      updated_at: now,
+      version: 1,
+    },
+    {
+      id: 'b-402',
+      note_id: note4Id,
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      parent_block_id: null,
+      type: 'paragraph',
+      content: {
+        text: 'Run private local LLMs with Ollama at 0 cost, or connect Groq / Gemini API keys for lightning-fast cloud completions. Referenced in [[Welcome to Synapse ⚡]].',
+      },
+      properties: {},
+      sort_order: 2000,
+      created_by: userId,
+      updated_by: userId,
+      created_at: now,
+      updated_at: now,
+      version: 1,
+    },
+  ];
+
+  // 4. Initial Links
+  const links: Link[] = [
+    {
+      id: 'l-1',
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      source_note_id: note1Id,
+      source_block_id: 'b-105',
+      target_note_id: note2Id,
+      created_at: now,
+    },
+    {
+      id: 'l-2',
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      source_note_id: note1Id,
+      source_block_id: 'b-106',
+      target_note_id: note3Id,
+      created_at: now,
+    },
+    {
+      id: 'l-3',
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      source_note_id: note1Id,
+      source_block_id: 'b-107',
+      target_note_id: note4Id,
+      created_at: now,
+    },
+    {
+      id: 'l-4',
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      source_note_id: note3Id,
+      source_block_id: 'b-302',
+      target_note_id: note1Id,
+      created_at: now,
+    },
+    {
+      id: 'l-5',
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      source_note_id: note3Id,
+      source_block_id: 'b-302',
+      target_note_id: note4Id,
+      created_at: now,
+    },
+    {
+      id: 'l-6',
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      source_note_id: note4Id,
+      source_block_id: 'b-402',
+      target_note_id: note1Id,
+      created_at: now,
+    },
+  ];
+
+  // 5. Default Templates
+  const templates: Template[] = [
+    {
+      id: 'tmpl-meeting',
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      title: 'Meeting Notes & Action Items',
+      description: 'Structured sync with agenda, discussion notes, and assignees.',
+      icon: '📅',
+      content: {
+        title: 'Meeting: {{title}} ({{date}})',
+        blocks: [
+          { type: 'heading_1', content: { text: 'Meeting Overview — {{date}}' } },
+          { type: 'paragraph', content: { text: 'Attendees: {{user}}, ' } },
+          { type: 'heading_2', content: { text: 'Agenda' } },
+          { type: 'bullet_list', content: { text: 'Key milestone review' } },
+          { type: 'bullet_list', content: { text: 'Blockers and risks' } },
+          { type: 'heading_2', content: { text: 'Decisions & Next Steps' } },
+          { type: 'bullet_list', content: { text: 'Action Item 1' } },
+        ],
+      },
+      created_by: userId,
+      created_at: now,
+      updated_at: now,
+    },
+    {
+      id: 'tmpl-rfc',
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      title: 'Engineering RFC / Spec',
+      description: 'Technical architecture document for proposing new systems.',
+      icon: '🛠️',
+      content: {
+        title: 'RFC: {{title}}',
+        blocks: [
+          { type: 'heading_1', content: { text: 'RFC: {{title}}' } },
+          { type: 'callout', content: { text: 'Status: Draft | Author: {{user}} | Date: {{date}}' } },
+          { type: 'heading_2', content: { text: 'Problem Statement' } },
+          { type: 'paragraph', content: { text: 'What problem are we solving and why now?' } },
+          { type: 'heading_2', content: { text: 'Proposed Architecture' } },
+          { type: 'code', content: { text: '// Architecture pseudo-code' }, properties: { language: 'typescript' } },
+          { type: 'heading_2', content: { text: 'Alternatives Considered' } },
+          { type: 'bullet_list', content: { text: 'Option A: ' } },
+        ],
+      },
+      created_by: userId,
+      created_at: now,
+      updated_at: now,
+    },
+  ];
+
+  // 6. Sample Database (v0.2 ready)
+  const databases: Database[] = [
+    {
+      id: 'db-sprint-tasks',
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      title: 'Sprint Roadmap & Tasks',
+      icon: '🎯',
+      properties: [
+        { id: 'p-title', name: 'Task Name', type: 'text' },
+        {
+          id: 'p-status',
+          name: 'Status',
+          type: 'select',
+          options: [
+            { id: 'opt-backlog', label: 'Backlog', color: '#94a3b8' },
+            { id: 'opt-in-progress', label: 'In Progress', color: '#6366f1' },
+            { id: 'opt-done', label: 'Done', color: '#10b981' },
+          ],
+        },
+        {
+          id: 'p-priority',
+          name: 'Priority',
+          type: 'select',
+          options: [
+            { id: 'opt-p0', label: 'High', color: '#ef4444' },
+            { id: 'opt-p1', label: 'Medium', color: '#f59e0b' },
+            { id: 'opt-p2', label: 'Low', color: '#3b82f6' },
+          ],
+        },
+        { id: 'p-due', name: 'Due Date', type: 'date' },
+      ],
+      rows: [
+        {
+          id: 'row-1',
+          database_id: 'db-sprint-tasks',
+          properties: {
+            'p-title': 'Build Block Editor with TipTap',
+            'p-status': 'Done',
+            'p-priority': 'High',
+            'p-due': '2026-09-02',
+          },
+          created_at: now,
+          updated_at: now,
+        },
+        {
+          id: 'row-2',
+          database_id: 'db-sprint-tasks',
+          properties: {
+            'p-title': 'Implement 2D Canvas Force Graph',
+            'p-status': 'Done',
+            'p-priority': 'High',
+            'p-due': '2026-09-03',
+          },
+          created_at: now,
+          updated_at: now,
+        },
+        {
+          id: 'row-3',
+          database_id: 'db-sprint-tasks',
+          properties: {
+            'p-title': 'Configure Pluggable Ollama & Groq AI',
+            'p-status': 'In Progress',
+            'p-priority': 'Medium',
+            'p-due': '2026-09-05',
+          },
+          created_at: now,
+          updated_at: now,
+        },
+      ],
+      created_at: now,
+      updated_at: now,
+    },
+  ];
+
+  
+  // 7. Default Whiteboard / Infinite Canvas
+  const defaultWhiteboard: Whiteboard = {
+    id: 'wb-system-design',
+    workspace_id: DEFAULT_WORKSPACE_ID,
+    title: 'Synapse System Architecture & Mindmap',
+    icon: '🎨',
+    viewport: { x: 200, y: 150, zoom: 1.0 },
+    elements: [
+      {
+        id: 'el-mindmap-root',
+        type: 'mindmap_node',
+        x: 400,
+        y: 200,
+        width: 220,
+        height: 60,
+        content: {
+          text: '🧠 Synapse Work OS',
+          color: '#818cf8',
+          bg_color: '#312e81',
+          font_size: 16,
+        },
+        parent_id: null,
+        z_index: 10,
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        id: 'el-mindmap-child-1',
+        type: 'mindmap_node',
+        x: 720,
+        y: 120,
+        width: 200,
+        height: 50,
+        content: {
+          text: '⚡ Local-First Engine',
+          color: '#34d399',
+          bg_color: '#064e3b',
+          font_size: 14,
+        },
+        parent_id: 'el-mindmap-root',
+        z_index: 10,
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        id: 'el-mindmap-child-2',
+        type: 'mindmap_node',
+        x: 720,
+        y: 280,
+        width: 200,
+        height: 50,
+        content: {
+          text: '🌐 Knowledge Graph',
+          color: '#c084fc',
+          bg_color: '#581c87',
+          font_size: 14,
+        },
+        parent_id: 'el-mindmap-root',
+        z_index: 10,
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        id: 'el-sticky-1',
+        type: 'sticky',
+        x: 100,
+        y: 100,
+        width: 200,
+        height: 180,
+        content: {
+          text: '💡 Design Principles:\n1. 0ms local editing\n2. Bidirectional linking\n3. Infinite spatial boards',
+          color: '#fef08a',
+          bg_color: '#713f12',
+        },
+        z_index: 5,
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        id: 'el-sticky-2',
+        type: 'sticky',
+        x: 100,
+        y: 320,
+        width: 200,
+        height: 160,
+        content: {
+          text: '🎯 Sprint Goals:\n• Canvas zoom & pan\n• Smart connector arrows\n• Live note cards',
+          color: '#a7f3d0',
+          bg_color: '#064e3b',
+        },
+        z_index: 5,
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        id: 'el-notecard-1',
+        type: 'note_card',
+        x: 400,
+        y: 380,
+        width: 240,
+        height: 140,
+        content: {
+          note_id: note1Id,
+          title: 'Welcome to Synapse ⚡',
+          text: 'Block editor, bidirectional links [[Getting Started]], and local engine.',
+        },
+        z_index: 8,
+        created_at: now,
+        updated_at: now,
+      },
+    ],
+    connections: [
+      {
+        id: 'conn-1',
+        from_element_id: 'el-mindmap-root',
+        to_element_id: 'el-mindmap-child-1',
+        from_anchor: 'right',
+        to_anchor: 'left',
+        style: 'curved',
+        color: '#6366f1',
+      },
+      {
+        id: 'conn-2',
+        from_element_id: 'el-mindmap-root',
+        to_element_id: 'el-mindmap-child-2',
+        from_anchor: 'right',
+        to_anchor: 'left',
+        style: 'curved',
+        color: '#a855f7',
+      },
+      {
+        id: 'conn-3',
+        from_element_id: 'el-sticky-1',
+        to_element_id: 'el-mindmap-root',
+        from_anchor: 'right',
+        to_anchor: 'left',
+        style: 'curved',
+        color: '#eab308',
+      },
+      {
+        id: 'conn-4',
+        from_element_id: 'el-mindmap-root',
+        to_element_id: 'el-notecard-1',
+        from_anchor: 'bottom',
+        to_anchor: 'top',
+        style: 'straight',
+        color: '#64748b',
+      },
+    ],
+    created_at: now,
+    updated_at: now,
+  };
+
+  await localDb.transaction('rw', [localDb.workspaces, localDb.notes, localDb.blocks, localDb.links, localDb.templates, localDb.databases, localDb.whiteboards], async () => {
+    await localDb.workspaces.put(defaultWorkspace);
+    await localDb.notes.bulkPut(notes);
+    await localDb.blocks.bulkPut(blocks);
+    await localDb.links.bulkPut(links);
+    await localDb.templates.bulkPut(templates);
+    await localDb.databases.bulkPut(databases);
+    await localDb.whiteboards.put(defaultWhiteboard);
+  });
+}

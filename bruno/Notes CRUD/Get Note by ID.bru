@@ -1,0 +1,20 @@
+meta {
+  name: Get Note by ID
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/notes/note-welcome
+  body: none
+  auth: none
+}
+
+tests {
+  test("status code is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+  test("returns note data", function() {
+    expect(res.getBody().data.id).to.equal("note-welcome");
+  });
+}

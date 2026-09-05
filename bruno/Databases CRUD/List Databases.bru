@@ -1,0 +1,20 @@
+meta {
+  name: List Workspace Databases
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/databases?workspaceId=ws-default-synapse
+  body: none
+  auth: none
+}
+
+tests {
+  test("status code is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+  test("returns array of databases", function() {
+    expect(res.getBody().data).to.be.an('array');
+  });
+}

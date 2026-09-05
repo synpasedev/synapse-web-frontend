@@ -1,0 +1,30 @@
+meta {
+  name: Expand Thoughts
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/ai/expand
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "bullet": "Local-first architecture enables offline resilience and instant zero-latency editing."
+  }
+}
+
+tests {
+  test("status code is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+  test("returns expansion result", function() {
+    expect(res.getBody().result).to.be.a('string');
+  });
+}

@@ -1,0 +1,32 @@
+meta {
+  name: Create Relational Database
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/databases
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "workspaceId": "ws-default-synapse",
+    "title": "Bug Tracker & QA",
+    "properties": [
+      { "id": "p-title", "name": "Bug Title", "type": "text" },
+      { "id": "p-severity", "name": "Severity", "type": "select" }
+    ]
+  }
+}
+
+tests {
+  test("status code is 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+}

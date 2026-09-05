@@ -1,0 +1,33 @@
+meta {
+  name: Summarize Note
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/ai/summarize
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "text": "Synapse combines Notion block editing with Obsidian bidirectional graph linking into a privacy-respecting, local-first platform."
+  }
+}
+
+tests {
+  test("status code is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+  test("returns summary result", function() {
+    expect(res.getBody().result).to.be.a('string');
+  });
+  test("returns provider", function() {
+    expect(res.getBody().provider).to.be.a('string');
+  });
+}

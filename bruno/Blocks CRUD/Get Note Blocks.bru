@@ -1,0 +1,20 @@
+meta {
+  name: Get Blocks for Note
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/blocks?noteId=note-welcome
+  body: none
+  auth: none
+}
+
+tests {
+  test("status code is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+  test("returns array of blocks", function() {
+    expect(res.getBody().data).to.be.an('array');
+  });
+}

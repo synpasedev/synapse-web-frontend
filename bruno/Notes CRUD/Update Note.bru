@@ -1,0 +1,31 @@
+meta {
+  name: Update Note Properties
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/api/notes/note-welcome
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "title": "Welcome to Synapse ⚡ (Updated)",
+    "is_favorite": true
+  }
+}
+
+tests {
+  test("status code is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+  test("returns updated title", function() {
+    expect(res.getBody().data.title).to.include("Updated");
+  });
+}

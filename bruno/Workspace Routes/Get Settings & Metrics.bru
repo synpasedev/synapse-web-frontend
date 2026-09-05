@@ -1,0 +1,17 @@
+meta {
+  name: Get Settings & Storage Metrics
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/ws-default-synapse/settings
+  body: none
+  auth: none
+}
+
+tests {
+  test("status code is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+}

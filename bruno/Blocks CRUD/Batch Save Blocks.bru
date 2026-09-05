@@ -1,0 +1,42 @@
+meta {
+  name: Batch Save Blocks
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/blocks
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "noteId": "note-welcome",
+    "workspaceId": "ws-default-synapse",
+    "blocks": [
+      {
+        "id": "block-test-1",
+        "type": "heading_1",
+        "content": { "text": "Programmatic Block Creation" },
+        "sort_order": 1000
+      },
+      {
+        "id": "block-test-2",
+        "type": "paragraph",
+        "content": { "text": "This block was synced through the Synapse REST API." },
+        "sort_order": 2000
+      }
+    ]
+  }
+}
+
+tests {
+  test("status code is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+}

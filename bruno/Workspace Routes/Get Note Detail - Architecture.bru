@@ -1,0 +1,17 @@
+meta {
+  name: Get Note Detail (Architecture)
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/ws-default-synapse/notes/note-arch
+  body: none
+  auth: none
+}
+
+tests {
+  test("status code is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+}

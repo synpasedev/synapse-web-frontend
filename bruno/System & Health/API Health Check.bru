@@ -1,0 +1,23 @@
+meta {
+  name: API Health Check
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/health
+  body: none
+  auth: none
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+  test("service is Synapse", function() {
+    expect(res.getBody().service).to.include("Synapse");
+  });
+  test("status is healthy", function() {
+    expect(res.getBody().status).to.equal("healthy");
+  });
+}

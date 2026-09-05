@@ -1,0 +1,20 @@
+meta {
+  name: Delete or Archive Note
+  type: http
+  seq: 5
+}
+
+delete {
+  url: {{baseUrl}}/api/notes/note-welcome
+  body: none
+  auth: none
+}
+
+tests {
+  test("status code is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+  test("confirms note deletion", function() {
+    expect(res.getBody().message).to.include("deleted");
+  });
+}

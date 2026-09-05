@@ -1,0 +1,550 @@
+{
+  "info": {
+    "name": "Synapse Workspace Complete REST & Route API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Complete REST API Collection for Synapse (Notes CRUD, Blocks CRUD, Databases CRUD, Workspaces, AI Assistants, Auth, SSR routes)"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Notes CRUD",
+      "item": [
+        {
+          "name": "List Workspace Notes",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/notes?workspaceId=ws-default-synapse",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "notes"
+              ],
+              "query": [
+                {
+                  "key": "workspaceId",
+                  "value": "ws-default-synapse"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create New Note",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"workspaceId\": \"ws-default-synapse\",\n  \"title\": \"API Created Note 🚀\",\n  \"icon\": \"🚀\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/notes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "notes"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Note by ID",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/notes/note-welcome",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "notes",
+                "note-welcome"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Note Properties",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Welcome to Synapse ⚡ (Updated)\",\n  \"is_favorite\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/notes/note-welcome",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "notes",
+                "note-welcome"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete or Archive Note",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/api/notes/note-welcome",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "notes",
+                "note-welcome"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Blocks CRUD",
+      "item": [
+        {
+          "name": "Get Note Blocks",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/blocks?noteId=note-welcome",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "blocks"
+              ],
+              "query": [
+                {
+                  "key": "noteId",
+                  "value": "note-welcome"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Batch Save Blocks",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"noteId\": \"note-welcome\",\n  \"workspaceId\": \"ws-default-synapse\",\n  \"blocks\": [\n    {\n      \"id\": \"block-test-1\",\n      \"type\": \"heading_1\",\n      \"content\": {\n        \"text\": \"Programmatic Block\"\n      },\n      \"sort_order\": 1000\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/blocks",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "blocks"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Databases CRUD",
+      "item": [
+        {
+          "name": "List Databases",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/databases?workspaceId=ws-default-synapse",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "databases"
+              ],
+              "query": [
+                {
+                  "key": "workspaceId",
+                  "value": "ws-default-synapse"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Database",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"workspaceId\": \"ws-default-synapse\",\n  \"title\": \"Bug Tracker & QA\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/databases",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "databases"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Workspaces",
+      "item": [
+        {
+          "name": "List Workspaces",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/workspaces",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "workspaces"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "System & Health",
+      "item": [
+        {
+          "name": "API Health Check",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "health"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "AI Assistants",
+      "item": [
+        {
+          "name": "Summarize Note",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"Synapse is an all-in-one workspace combining block editing with bidirectional graph linking.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/ai/summarize",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ai",
+                "summarize"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Expand Thoughts",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bullet\": \"Local-first architecture enables offline resilience.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/ai/expand",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ai",
+                "expand"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Generate Template",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prompt\": \"Engineering Architecture RFC for Synapse\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/ai/generate-template",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ai",
+                "generate-template"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth & Identity",
+      "item": [
+        {
+          "name": "Get Login Page",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "login"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Signup Page",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/signup",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "signup"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Auth Callback Handler",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/callback",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "callback"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Workspace Routes",
+      "item": [
+        {
+          "name": "Root Redirect",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                ""
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Notes Gallery",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/ws-default-synapse/notes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ws-default-synapse",
+                "notes"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Note Detail (Welcome)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/ws-default-synapse/notes/note-welcome",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ws-default-synapse",
+                "notes",
+                "note-welcome"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Note Detail (Architecture)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/ws-default-synapse/notes/note-arch",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ws-default-synapse",
+                "notes",
+                "note-arch"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Knowledge Graph",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/ws-default-synapse/graph",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ws-default-synapse",
+                "graph"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Databases & Sprint",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/ws-default-synapse/databases",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ws-default-synapse",
+                "databases"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Templates Library",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/ws-default-synapse/templates",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ws-default-synapse",
+                "templates"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Settings & Storage Metrics",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/ws-default-synapse/settings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ws-default-synapse",
+                "settings"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

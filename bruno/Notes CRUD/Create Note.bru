@@ -1,0 +1,32 @@
+meta {
+  name: Create New Note
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/notes
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "workspaceId": "ws-default-synapse",
+    "title": "API Created Note 🚀",
+    "icon": "🚀"
+  }
+}
+
+tests {
+  test("status code is 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+  test("returns created note object", function() {
+    expect(res.getBody().data.title).to.include("API Created Note");
+  });
+}

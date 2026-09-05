@@ -1,0 +1,30 @@
+meta {
+  name: Generate Custom Template
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/ai/generate-template
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "prompt": "Engineering Architecture RFC for Synapse"
+  }
+}
+
+tests {
+  test("status code is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+  test("returns template content", function() {
+    expect(res.getBody().content).to.be.a('string');
+  });
+}
