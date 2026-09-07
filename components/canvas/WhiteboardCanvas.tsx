@@ -66,6 +66,10 @@ export const WhiteboardCanvas: React.FC<{
   const [currentDrawingPoints, setCurrentDrawingPoints] = useState<Array<{ x: number; y: number }>>([]);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
 
+  // Spacebar temporary pan state
+  const [isSpacePressed, setIsSpacePressed] = useState(false);
+  const isSpacePressedRef = useRef(false);
+
   // Multi-Selection State
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
@@ -250,12 +254,46 @@ export const WhiteboardCanvas: React.FC<{
   // Keyboard Shortcuts (Figma/FigJam Style)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement).tagName.toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || (e.target as HTMLElement).isContentEditable) {
+      const tag = (e.target as HTMLElement).tagName?.toLowerCase();
+      const isInput =
+        tag === 'input' || tag === 'textarea' || (e.target as HTMLElement).isContentEditable;
+
+      // Spacebar for temporary Hand Pan tool
+      if ((e.code === 'Space' || e.key === ' ') && !isInput) {
+        e.preventDefault();
+        if (!isSpacePressedRef.current) {
+          isSpacePressedRef.current = true;
+          setIsSpacePressed(true);
+        }
+        return;
+      }
+
+      if (isInput) {
         return;
       }
 
       const isCtrl = e.ctrlKey || e.metaKey;
+
+      // Prevent native browser zoom and zoom the canvas instead
+      if (
+        isCtrl &&
+        (e.key === '+' || e.key === '=' || e.key === '-' || e.key === '_' || e.key === '0')
+      ) {
+        e.preventDefault();
+        if (e.key === '+' || e.key === '=') {
+          const newZ = Math.min(viewport.zoom * 1.15, 3.0);
+          setViewport((prev) => ({ ...prev, zoom: newZ }));
+          persistChanges(elements, connections, { ...viewport, zoom: newZ });
+        } else if (e.key === '-' || e.key === '_') {
+          const newZ = Math.max(viewport.zoom * 0.85, 0.2);
+          setViewport((prev) => ({ ...prev, zoom: newZ }));
+          persistChanges(elements, connections, { ...viewport, zoom: newZ });
+        } else if (e.key === '0') {
+          setViewport((prev) => ({ ...prev, zoom: 1.0 }));
+          persistChanges(elements, connections, { ...viewport, zoom: 1.0 });
+        }
+        return;
+      }
 
       if (isCtrl && e.key.toLowerCase() === 'z') {
         e.preventDefault();
@@ -342,36 +380,82 @@ export const WhiteboardCanvas: React.FC<{
       }
     };
 
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space' || e.key === ' ') {
+        isSpacePressedRef.current = false;
+        setIsSpacePressed(false);
+      }
+    };
+
+    const handleBlur = () => {
+      isSpacePressedRef.current = false;
+      setIsSpacePressed(false);
+    };
+
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleBlur);
+    };
   }, [
     elements,
     selectedIds,
+    viewport,
     handleUndo,
     handleRedo,
     handleDeleteSelected,
     handleDuplicateSelected,
     handleNudgeSelected,
+    persistChanges,
+    connections,
   ]);
 
-  // Wheel Zoom & Pan
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    if (e.ctrlKey || e.metaKey) {
-      const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
-      const newZoom = Math.min(Math.max(viewport.zoom * zoomFactor, 0.15), 3.0);
-      const newViewport = { ...viewport, zoom: newZoom };
-      setViewport(newViewport);
-      persistChanges(elements, connections, newViewport);
-    } else {
-      const newViewport = {
-        ...viewport,
-        x: viewport.x - e.deltaX,
-        y: viewport.y - e.deltaY,
-      };
-      setViewport(newViewport);
-    }
-  };
+  // Non-passive wheel event listener to prevent native browser page zoom and zoom canvas smoothly towards cursor
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleNativeWheel = (e: WheelEvent) => {
+      // Calling preventDefault on a non-passive listener guarantees the browser webpage will NOT zoom!
+      e.preventDefault();
+
+      if (e.ctrlKey || e.metaKey) {
+        // Zoom towards mouse pointer coordinates (Figma/FigJam style)
+        const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
+        setViewport((prev) => {
+          const newZoom = Math.min(Math.max(prev.zoom * zoomFactor, 0.15), 3.0);
+          const rect = container.getBoundingClientRect();
+          const mouseX = e.clientX - rect.left;
+          const mouseY = e.clientY - rect.top;
+          const newX = mouseX - (mouseX - prev.x) * (newZoom / prev.zoom);
+          const newY = mouseY - (mouseY - prev.y) * (newZoom / prev.zoom);
+
+          const newVp = { x: newX, y: newY, zoom: newZoom };
+          persistChanges(elements, connections, newVp);
+          return newVp;
+        });
+      } else {
+        // Two-finger swipe or scroll wheel = Pan canvas
+        setViewport((prev) => {
+          const newVp = {
+            ...prev,
+            x: prev.x - e.deltaX,
+            y: prev.y - e.deltaY,
+          };
+          return newVp;
+        });
+      }
+    };
+
+    container.addEventListener('wheel', handleNativeWheel, { passive: false });
+    return () => {
+      container.removeEventListener('wheel', handleNativeWheel);
+    };
+  }, [elements, connections, persistChanges]);
+
 
   // Double Click Canvas = Quick FigJam Sticky Note Creation
   const handleDoubleClick = (e: React.MouseEvent) => {
@@ -413,11 +497,11 @@ export const WhiteboardCanvas: React.FC<{
     }
 
     // Do not interfere if user was drawing
-    if (activeTool === 'pen' || activeTool === 'highlighter' || activeTool === 'eraser') {
+    if (activeTool === 'hand' || isSpacePressed) {
       return;
     }
 
-    if (activeTool === 'select' || activeTool === 'hand') {
+    if (activeTool === 'select') {
       if (!dragState?.didMove) {
         if (!e.shiftKey && !e.ctrlKey && !e.metaKey) {
           setSelectedIds(new Set());
@@ -425,6 +509,7 @@ export const WhiteboardCanvas: React.FC<{
       }
       return;
     }
+
 
     const { x, y } = screenToCanvas(e.clientX, e.clientY);
     const id = `el-${crypto.randomUUID().slice(0, 8)}`;
@@ -593,6 +678,14 @@ export const WhiteboardCanvas: React.FC<{
       return;
     }
 
+    // Hand tool or Spacebar pan active -> pan canvas instead of dragging element
+    if (activeTool === 'hand' || isSpacePressed) {
+      e.stopPropagation();
+      setIsPanning(true);
+      setPanStart({ x: e.clientX, y: e.clientY });
+      return;
+    }
+
     if (activeTool === 'pen' || activeTool === 'highlighter') {
       // Allow drawing across element boundaries
       return;
@@ -695,9 +788,10 @@ export const WhiteboardCanvas: React.FC<{
       return;
     }
 
-    if (activeTool === 'hand' || e.button === 1) {
+    if (activeTool === 'hand' || isSpacePressed || e.button === 1) {
       setIsPanning(true);
       setPanStart({ x: e.clientX, y: e.clientY });
+      return;
     } else if (e.button === 0 && activeTool === 'select') {
       e.preventDefault();
       didMarqueeDragRef.current = false;
@@ -711,6 +805,7 @@ export const WhiteboardCanvas: React.FC<{
       initialSelectionRef.current = new Set(selectedIds);
     }
   };
+
 
   const handleMouseMove = (e: React.MouseEvent) => {
     const canvasPos = screenToCanvas(e.clientX, e.clientY);
@@ -1071,7 +1166,6 @@ export const WhiteboardCanvas: React.FC<{
   return (
     <div
       ref={containerRef}
-      onWheel={handleWheel}
       onMouseDown={handleCanvasMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
@@ -1080,8 +1174,10 @@ export const WhiteboardCanvas: React.FC<{
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       className={`w-full h-full relative overflow-hidden bg-[#0e0f14] select-none ${
-        activeTool === 'hand' || isPanning
-          ? 'cursor-grab active:cursor-grabbing'
+        activeTool === 'hand' || isSpacePressed || isPanning
+          ? isPanning
+            ? 'cursor-grabbing'
+            : 'cursor-grab'
           : activeTool === 'pen' || activeTool === 'highlighter'
           ? 'cursor-crosshair'
           : activeTool === 'eraser'
@@ -1089,6 +1185,7 @@ export const WhiteboardCanvas: React.FC<{
           : 'cursor-default'
       }`}
     >
+
       {/* Interactive Radar Minimap */}
       <CanvasMinimap
         elements={elements}
@@ -1242,6 +1339,7 @@ export const WhiteboardCanvas: React.FC<{
         {/* Spatial Elements DOM Layer */}
         {elements.map((el) => {
           const isSelected = selectedIds.has(el.id);
+          const isPanMode = activeTool === 'hand' || isSpacePressed;
 
           return (
             <div
@@ -1249,6 +1347,7 @@ export const WhiteboardCanvas: React.FC<{
               onMouseDown={(e) => handleElementMouseDown(e, el)}
               onClick={(e) => {
                 e.stopPropagation();
+                if (isPanMode) return;
                 if (activeTool === 'eraser') {
                   handleDeleteElement(el.id);
                   return;
@@ -1257,7 +1356,9 @@ export const WhiteboardCanvas: React.FC<{
                   setSelectedIds(new Set([el.id]));
                 }
               }}
-              className="absolute transition-shadow"
+              className={`absolute transition-shadow ${
+                isPanMode ? (isPanning ? 'cursor-grabbing' : 'cursor-grab select-none') : ''
+              }`}
               style={{
                 left: `${el.x}px`,
                 top: `${el.y}px`,
@@ -1266,83 +1367,85 @@ export const WhiteboardCanvas: React.FC<{
                 zIndex: el.type === 'frame' ? 0 : el.z_index,
               }}
             >
-              {el.type === 'sticky' && (
-                <StickyNoteElement
-                  element={el}
-                  isSelected={isSelected}
-                  onUpdate={(updates) => handleUpdateElement(el.id, updates)}
-                  onDelete={() => handleDeleteElement(el.id)}
-                  onPromoteToNote={() => handlePromoteToNote(el)}
-                  onStartConnect={(anchor) => handleStartConnect(el.id, anchor)}
-                />
-              )}
+              <div className={`w-full h-full ${isPanMode ? 'pointer-events-none' : ''}`}>
+                {el.type === 'sticky' && (
+                  <StickyNoteElement
+                    element={el}
+                    isSelected={isSelected}
+                    onUpdate={(updates) => handleUpdateElement(el.id, updates)}
+                    onDelete={() => handleDeleteElement(el.id)}
+                    onPromoteToNote={() => handlePromoteToNote(el)}
+                    onStartConnect={(anchor) => handleStartConnect(el.id, anchor)}
+                  />
+                )}
 
-              {el.type === 'stamp' && (
-                <StampElement
-                  element={el}
-                  isSelected={isSelected}
-                  onUpdate={(updates) => handleUpdateElement(el.id, updates)}
-                  onDelete={() => handleDeleteElement(el.id)}
-                />
-              )}
+                {el.type === 'stamp' && (
+                  <StampElement
+                    element={el}
+                    isSelected={isSelected}
+                    onUpdate={(updates) => handleUpdateElement(el.id, updates)}
+                    onDelete={() => handleDeleteElement(el.id)}
+                  />
+                )}
 
-              {el.type === 'text' && (
-                <TextElement
-                  element={el}
-                  isSelected={isSelected}
-                  onUpdate={(updates) => handleUpdateElement(el.id, updates)}
-                  onDelete={() => handleDeleteElement(el.id)}
-                />
-              )}
+                {el.type === 'text' && (
+                  <TextElement
+                    element={el}
+                    isSelected={isSelected}
+                    onUpdate={(updates) => handleUpdateElement(el.id, updates)}
+                    onDelete={() => handleDeleteElement(el.id)}
+                  />
+                )}
 
-              {el.type === 'shape' && (
-                <ShapeElement
-                  element={el}
-                  isSelected={isSelected}
-                  onUpdate={(updates) => handleUpdateElement(el.id, updates)}
-                  onStartConnect={(anchor) => handleStartConnect(el.id, anchor)}
-                />
-              )}
+                {el.type === 'shape' && (
+                  <ShapeElement
+                    element={el}
+                    isSelected={isSelected}
+                    onUpdate={(updates) => handleUpdateElement(el.id, updates)}
+                    onStartConnect={(anchor) => handleStartConnect(el.id, anchor)}
+                  />
+                )}
 
-              {el.type === 'frame' && (
-                <FrameElement
-                  element={el}
-                  isSelected={isSelected}
-                  onUpdate={(updates) => handleUpdateElement(el.id, updates)}
-                  onDelete={() => handleDeleteElement(el.id)}
-                />
-              )}
+                {el.type === 'frame' && (
+                  <FrameElement
+                    element={el}
+                    isSelected={isSelected}
+                    onUpdate={(updates) => handleUpdateElement(el.id, updates)}
+                    onDelete={() => handleDeleteElement(el.id)}
+                  />
+                )}
 
-              {el.type === 'drawing' && (
-                <div
-                  className={`w-full h-full cursor-move rounded border border-transparent transition-all ${
-                    isSelected ? 'border-indigo-400/60 bg-indigo-500/5' : 'hover:border-white/20'
-                  }`}
-                  title="Drawing stroke (click to select/move)"
-                />
-              )}
+                {el.type === 'drawing' && (
+                  <div
+                    className={`w-full h-full cursor-move rounded border border-transparent transition-all ${
+                      isSelected ? 'border-indigo-400/60 bg-indigo-500/5' : 'hover:border-white/20'
+                    }`}
+                    title="Drawing stroke (click to select/move)"
+                  />
+                )}
 
-              {el.type === 'note_card' && (
-                <NoteCardElement
-                  element={el}
-                  workspaceId={workspaceId}
-                  isSelected={isSelected}
-                  onUpdate={(updates) => handleUpdateElement(el.id, updates)}
-                  onDelete={() => handleDeleteElement(el.id)}
-                  onStartConnect={(anchor) => handleStartConnect(el.id, anchor)}
-                />
-              )}
+                {el.type === 'note_card' && (
+                  <NoteCardElement
+                    element={el}
+                    workspaceId={workspaceId}
+                    isSelected={isSelected}
+                    onUpdate={(updates) => handleUpdateElement(el.id, updates)}
+                    onDelete={() => handleDeleteElement(el.id)}
+                    onStartConnect={(anchor) => handleStartConnect(el.id, anchor)}
+                  />
+                )}
 
-              {el.type === 'mindmap_node' && (
-                <MindmapNodeElement
-                  element={el}
-                  isSelected={isSelected}
-                  onUpdate={(updates) => handleUpdateElement(el.id, updates)}
-                  onDelete={() => handleDeleteElement(el.id)}
-                  onAIExpand={() => handleAIExpandNode(el)}
-                  onStartConnect={(anchor) => handleStartConnect(el.id, anchor)}
-                />
-              )}
+                {el.type === 'mindmap_node' && (
+                  <MindmapNodeElement
+                    element={el}
+                    isSelected={isSelected}
+                    onUpdate={(updates) => handleUpdateElement(el.id, updates)}
+                    onDelete={() => handleDeleteElement(el.id)}
+                    onAIExpand={() => handleAIExpandNode(el)}
+                    onStartConnect={(anchor) => handleStartConnect(el.id, anchor)}
+                  />
+                )}
+              </div>
             </div>
           );
         })}
