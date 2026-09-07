@@ -129,8 +129,41 @@ if (!global.__synapse_databases) {
   ];
 }
 
+// ---------------------------------------------------------------------------
+// Shared Content Store — persists published share snapshots in server memory
+// ---------------------------------------------------------------------------
+export interface SharedSnapshot {
+  id: string;          // e.g. "note-welcome"
+  type: string;        // 'note' | 'canvas' | 'database'
+  resource: any;       // the serialised resource object
+  blocks?: any[];      // for notes: serialised blocks
+  publishedAt: string;
+  publisherName?: string;
+}
+
+declare global {
+  var __synapse_shares: Map<string, SharedSnapshot> | undefined;
+}
+
+if (!global.__synapse_shares) {
+  global.__synapse_shares = new Map();
+}
+
 export const serverStore = {
   getNotes: () => global.__synapse_notes || [],
   getBlocks: () => global.__synapse_blocks || [],
   getDatabases: () => global.__synapse_databases || [],
+
+  // Share publishing
+  publishShare: (snapshot: SharedSnapshot) => {
+    const key = `${snapshot.type}::${snapshot.id}`;
+    global.__synapse_shares!.set(key, snapshot);
+  },
+  getShare: (type: string, id: string): SharedSnapshot | undefined => {
+    const key = `${type}::${id}`;
+    return global.__synapse_shares!.get(key);
+  },
+  listShares: (): SharedSnapshot[] => {
+    return Array.from(global.__synapse_shares!.values());
+  },
 };
