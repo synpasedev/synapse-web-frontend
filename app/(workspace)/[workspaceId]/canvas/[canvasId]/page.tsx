@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useWhiteboards, useWhiteboard, useCreateWhiteboard } from '@/hooks/use-whiteboard';
 import { WhiteboardCanvas } from '@/components/canvas/WhiteboardCanvas';
+import { ShareButton } from '@/components/share/ShareButton';
 import { Loader2, Plus, ArrowLeft, LayoutGrid } from 'lucide-react';
 
 export default function IndividualCanvasPage({
@@ -82,6 +83,15 @@ export default function IndividualCanvasPage({
         </div>
 
         <div className="flex items-center gap-2">
+          {whiteboard && (
+            <ShareButton
+              resourceType="canvas"
+              resourceId={whiteboard.id}
+              resourceTitle={whiteboard.title}
+              resourceIcon={whiteboard.icon || '🎨'}
+            />
+          )}
+
           <button
             type="button"
             onClick={handleCreateNewBoard}

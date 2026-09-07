@@ -5,6 +5,7 @@ import { useDatabases } from '@/hooks/use-databases';
 import { TableView } from '@/components/database/TableView';
 import { BoardView } from '@/components/database/BoardView';
 import { GoogleSheetSyncBadge } from '@/components/sync/GoogleSheetSyncBadge';
+import { ShareButton } from '@/components/share/ShareButton';
 import { Database as DbIcon, Table, Kanban, Sparkles, Loader2 } from 'lucide-react';
 
 export default function DatabasesPage({
@@ -49,14 +50,23 @@ export default function DatabasesPage({
           </div>
         </div>
 
-        {/* Controls: Google Sheet Sync + View Switcher */}
+        {/* Controls: Google Sheet Sync + Share + View Switcher */}
         <div className="flex flex-wrap items-center gap-3 self-start sm:self-auto">
           {defaultDb && (
-            <GoogleSheetSyncBadge
-              database={defaultDb}
-              workspaceId={workspaceId}
-              onRefreshDatabase={() => refetch()}
-            />
+            <>
+              <GoogleSheetSyncBadge
+                database={defaultDb}
+                workspaceId={workspaceId}
+                onRefreshDatabase={() => refetch()}
+              />
+
+              <ShareButton
+                resourceType="database"
+                resourceId={defaultDb.id}
+                resourceTitle={defaultDb.title}
+                resourceIcon={defaultDb.icon || '🎯'}
+              />
+            </>
           )}
 
           {/* View Switcher Toggle */}

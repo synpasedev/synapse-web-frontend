@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, Suspense } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createBrowserClient } from '@/lib/supabase/client';
 import { isSupabaseConfigured } from '@/lib/supabase/config';
 import { useAuth } from '@/hooks/use-auth';
@@ -10,8 +10,11 @@ import { Loader2, Mail, Lock, ShieldCheck, AlertCircle } from 'lucide-react';
 import { DEFAULT_WORKSPACE_ID } from '@/lib/dexie/seed';
 import { getURL } from '@/lib/url';
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectUrl = searchParams.get('redirect') || `/${DEFAULT_WORKSPACE_ID}/notes`;
+
   const { loginLocal } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -26,7 +29,7 @@ export default function LoginPage() {
     // 1. If running in Local Mode
     if (!isSupabaseConfigured()) {
       await loginLocal(email.split('@')[0] || 'User', email);
-      router.push(`/${DEFAULT_WORKSPACE_ID}/notes`);
+      router.push(redirectUrl);
       setLoading(false);
       return;
     }
@@ -34,13 +37,13 @@ export default function LoginPage() {
     // 2. If running with Supabase Cloud
     try {
       const supabase = createBrowserClient();
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
       if (error) throw error;
-      router.push(`/${DEFAULT_WORKSPACE_ID}/notes`);
+      router.push(redirectUrl);
     } catch (err: any) {
       setError(err.message || 'Login failed. If Supabase is not configured, use Offline Mode below.');
     } finally {
@@ -51,7 +54,7 @@ export default function LoginPage() {
   const handleGoogleLogin = async () => {
     if (!isSupabaseConfigured()) {
       await loginLocal('Google User', 'user@gmail.com');
-      router.push(`/${DEFAULT_WORKSPACE_ID}/notes`);
+      router.push(redirectUrl);
       return;
     }
 
@@ -60,7 +63,7 @@ export default function LoginPage() {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: getURL('/api/auth/callback'),
+          redirectTo: getURL(`/api/auth/callback?redirect=${encodeURIComponent(redirectUrl)}`),
         },
       });
       if (error) throw error;
@@ -74,7 +77,7 @@ export default function LoginPage() {
       <div className="mb-6 text-center">
         <h1 className="text-xl font-bold text-foreground">Welcome back</h1>
         <p className="text-xs text-muted-foreground mt-1">
-          Sign in to sync your notes across devices
+          Sign in to access your notes and shared documents
         </p>
       </div>
 
@@ -162,20 +165,41 @@ export default function LoginPage() {
       </button>
 
       {/* Guest / Offline Mode Fallback */}
-      <Link
-        href={`/${DEFAULT_WORKSPACE_ID}/notes`}
-        className="w-full py-2 rounded-xl bg-secondary/40 hover:bg-secondary/70 text-muted-foreground hover:text-foreground text-[11px] font-medium transition-colors flex items-center justify-center gap-1.5"
+      <button
+        type="button"
+        onClick={() => {
+          loginLocal('Guest Collaborator', 'guest@synapse.local');
+          router.push(redirectUrl);
+        }}
+        className="w-full py-2 rounded-xl bg-secondary/40 hover:bg-secondary/70 text-muted-foreground hover:text-foreground text-[11px] font-medium transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
       >
         <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-        <span>Continue in Local-First / Offline Mode</span>
-      </Link>
+        <span>Continue in Local-First / Guest Mode</span>
+      </button>
 
       <div className="mt-5 text-center text-xs text-muted-foreground">
         Don't have an account?{' '}
-        <Link href="/signup" className="text-primary hover:underline font-medium">
+        <Link
+          href={`/signup${searchParams.get('redirect') ? `?redirect=${encodeURIComponent(searchParams.get('redirect')!)}` : ''}`}
+          className="text-primary hover:underline font-medium"
+        >
           Sign up
         </Link>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-8 text-center bg-card rounded-2xl border border-border">
+          <Loader2 className="w-6 h-6 animate-spin mx-auto text-indigo-400" />
+        </div>
+      }
+    >
+      <LoginForm />
+    </Suspense>
   );
 }

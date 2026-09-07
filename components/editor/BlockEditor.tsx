@@ -22,6 +22,7 @@ import { extractLinksFromEditor } from '@/lib/editor-link-extractor';
 import { blocksToTipTapDoc, tipTapDocToBlocks } from '@/lib/editor-schema';
 import { GoogleDocSyncBadge } from '@/components/sync/GoogleDocSyncBadge';
 import { useGoogleSync } from '@/hooks/use-google-sync';
+import { ShareButton } from '@/components/share/ShareButton';
 import { Star, Clock, Layers } from 'lucide-react';
 
 const lowlight = createLowlight(common);
@@ -266,6 +267,13 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
               isSyncing={googleSync.isSyncing}
               onForceSync={() => googleSync.performSync(false)}
               onRefreshLink={googleSync.refreshLink}
+            />
+
+            <ShareButton
+              resourceType="note"
+              resourceId={note.id}
+              resourceTitle={note.title}
+              resourceIcon={note.icon || '📄'}
             />
 
             <button
