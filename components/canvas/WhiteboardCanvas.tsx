@@ -148,6 +148,10 @@ export const WhiteboardCanvas: React.FC<{
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentDrawingPoints, setCurrentDrawingPoints] = useState<Array<{ x: number; y: number }>>([]);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
+  const templateModalOpenRef = useRef(false);
+  useEffect(() => {
+    templateModalOpenRef.current = templateModalOpen;
+  }, [templateModalOpen]);
 
   // Spacebar temporary pan state
   const [isSpacePressed, setIsSpacePressed] = useState(false);
@@ -337,6 +341,10 @@ export const WhiteboardCanvas: React.FC<{
   // Keyboard Shortcuts (Figma/FigJam Style)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (templateModalOpenRef.current) {
+        return;
+      }
+
       const tag = (e.target as HTMLElement).tagName?.toLowerCase();
       const isInput =
         tag === 'input' || tag === 'textarea' || (e.target as HTMLElement).isContentEditable;
@@ -502,6 +510,16 @@ export const WhiteboardCanvas: React.FC<{
     if (!container) return;
 
     const handleNativeWheel = (e: WheelEvent) => {
+      // If template modal is open or scroll event originated in a modal/dialog, let it scroll naturally without scrolling canvas
+      if (templateModalOpenRef.current) {
+        return;
+      }
+
+      const target = e.target as HTMLElement | null;
+      if (target && (target.closest('.fixed') || target.closest('[role="dialog"]'))) {
+        return;
+      }
+
       // Calling preventDefault on a non-passive listener guarantees the browser webpage will NOT zoom!
       e.preventDefault();
 
@@ -864,6 +882,10 @@ export const WhiteboardCanvas: React.FC<{
 
   // Canvas Mouse Down: Freehand Pen / Highlighter, Pan, or Marquee Box Selection
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
+    if (templateModalOpenRef.current) {
+      return;
+    }
+
     if (activeTool === 'pen' || activeTool === 'highlighter') {
       const canvasPos = screenToCanvas(e.clientX, e.clientY);
       setIsDrawing(true);

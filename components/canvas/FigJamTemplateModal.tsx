@@ -350,7 +350,11 @@ export const FigJamTemplateModal: React.FC<{
   ];
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150"
+    >
       <div className="w-full max-w-2xl bg-card border border-border rounded-3xl p-6 shadow-2xl overflow-hidden relative text-foreground">
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-border/40 mb-5">
@@ -375,7 +379,10 @@ export const FigJamTemplateModal: React.FC<{
         </div>
 
         {/* Template Cards Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[60vh] overflow-y-auto pr-1">
+        <div
+          onWheel={(e) => e.stopPropagation()}
+          className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[60vh] overflow-y-auto pr-1"
+        >
           {templates.map((tpl) => (
             <button
               key={tpl.id}
