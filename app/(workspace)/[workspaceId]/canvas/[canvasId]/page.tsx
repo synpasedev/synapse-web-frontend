@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useWhiteboards, useWhiteboard, useCreateWhiteboard } from '@/hooks/use-whiteboard';
 import { WhiteboardCanvas } from '@/components/canvas/WhiteboardCanvas';
-import { FigJamTimer } from '@/components/canvas/FigJamTimer';
 import { Loader2, Plus, ArrowLeft, LayoutGrid } from 'lucide-react';
 
 export default function IndividualCanvasPage({
@@ -83,8 +82,6 @@ export default function IndividualCanvasPage({
         </div>
 
         <div className="flex items-center gap-2">
-          <FigJamTimer />
-
           <button
             type="button"
             onClick={handleCreateNewBoard}
