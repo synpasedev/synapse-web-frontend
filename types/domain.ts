@@ -131,8 +131,17 @@ export interface Database {
 // INFINITE CANVAS & WHITEBOARD DOMAIN TYPES
 // -------------------------------------------------------------
 
-export type CanvasElementType = 'sticky' | 'note_card' | 'shape' | 'text' | 'mindmap_node' | 'drawing' | 'frame';
-export type ShapeType = 'rectangle' | 'circle' | 'diamond' | 'pill';
+export type CanvasElementType =
+  | 'sticky'
+  | 'note_card'
+  | 'shape'
+  | 'text'
+  | 'mindmap_node'
+  | 'drawing'
+  | 'frame'
+  | 'stamp';
+
+export type ShapeType = 'rectangle' | 'circle' | 'diamond' | 'pill' | 'triangle' | 'star';
 export type ArrowStyle = 'curved' | 'straight' | 'orthogonal';
 
 export interface CanvasElement {
@@ -154,6 +163,10 @@ export interface CanvasElement {
     stroke_width?: number;
     font_size?: number;
     points?: Array<{ x: number; y: number }>;
+    tool_type?: 'pen' | 'highlighter';
+    emoji?: string;
+    count?: number;
+    author?: string;
     [key: string]: any;
   };
   parent_id?: string | null;
@@ -179,9 +192,11 @@ export interface Whiteboard {
   workspace_id: string;
   title: string;
   icon: string;
+  board_type?: 'whiteboard' | 'canvas';
   viewport: { x: number; y: number; zoom: number };
   elements: CanvasElement[];
   connections: CanvasConnection[];
   created_at: string;
   updated_at: string;
 }
+

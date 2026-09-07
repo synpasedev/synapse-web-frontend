@@ -1,14 +1,20 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   MousePointer,
   Hand,
+  PenTool,
+  Highlighter,
+  Eraser,
   StickyNote,
+  Smile,
   FileText,
   GitBranch,
   Square,
   Circle,
+  Diamond,
+  Pill,
   ArrowUpRight,
   Type,
   Layers,
@@ -20,19 +26,39 @@ import {
   Maximize2,
   Download,
   RotateCcw,
+  LayoutTemplate,
 } from 'lucide-react';
 
 export type ActiveTool =
   | 'select'
   | 'hand'
+  | 'pen'
+  | 'highlighter'
+  | 'eraser'
   | 'sticky'
+  | 'stamp'
   | 'note_card'
   | 'mindmap'
   | 'rectangle'
   | 'circle'
+  | 'diamond'
+  | 'pill'
   | 'frame'
   | 'arrow'
   | 'text';
+
+export const FIGJAM_DRAWING_COLORS = [
+  { name: 'Charcoal', color: '#1e293b' },
+  { name: 'White', color: '#f8fafc' },
+  { name: 'Indigo', color: '#818cf8' },
+  { name: 'Sky Blue', color: '#38bdf8' },
+  { name: 'Emerald', color: '#34d399' },
+  { name: 'Amber', color: '#fbbf24' },
+  { name: 'Rose', color: '#fb7185' },
+  { name: 'Purple', color: '#c084fc' },
+];
+
+export const FIGJAM_STAMP_EMOJIS = ['👍', '❤️', '🔥', '🚀', '💡', '⭐', '💯', '❓', '🎉', '💩'];
 
 export const CanvasToolbar: React.FC<{
   activeTool: ActiveTool;
@@ -49,6 +75,15 @@ export const CanvasToolbar: React.FC<{
   onFitContent: () => void;
   onExport: () => void;
   onClear: () => void;
+  onOpenTemplates?: () => void;
+  // Drawing configurations
+  drawingColor: string;
+  setDrawingColor: (c: string) => void;
+  drawingWidth: number;
+  setDrawingWidth: (w: number) => void;
+  activeStamp: string;
+  setActiveStamp: (emoji: string) => void;
+  mode?: 'whiteboard' | 'canvas';
 }> = ({
   activeTool,
   setActiveTool,
@@ -64,23 +99,95 @@ export const CanvasToolbar: React.FC<{
   onFitContent,
   onExport,
   onClear,
+  onOpenTemplates,
+  drawingColor,
+  setDrawingColor,
+  drawingWidth,
+  setDrawingWidth,
+  activeStamp,
+  setActiveStamp,
+  mode = 'whiteboard',
 }) => {
-    const tools: Array<{ id: ActiveTool; label: string; icon: React.ReactNode; shortcut: string }> = [
-      { id: 'select', label: 'Select & Move', icon: <MousePointer className="w-4 h-4" />, shortcut: 'V' },
-      { id: 'hand', label: 'Pan Canvas', icon: <Hand className="w-4 h-4" />, shortcut: 'H' },
-      { id: 'sticky', label: 'Sticky Note', icon: <StickyNote className="w-4 h-4" />, shortcut: 'S' },
-      { id: 'note_card', label: 'Embed Note Card', icon: <FileText className="w-4 h-4" />, shortcut: 'N' },
-      { id: 'mindmap', label: 'Mindmap Node', icon: <GitBranch className="w-4 h-4" />, shortcut: 'M' },
-      { id: 'rectangle', label: 'Rectangle', icon: <Square className="w-4 h-4" />, shortcut: 'R' },
-      { id: 'circle', label: 'Circle', icon: <Circle className="w-4 h-4" />, shortcut: 'O' },
-      { id: 'frame', label: 'Section Frame Container', icon: <Layers className="w-4 h-4" />, shortcut: 'F' },
-      { id: 'arrow', label: 'Connector Arrow', icon: <ArrowUpRight className="w-4 h-4" />, shortcut: 'A' },
-      { id: 'text', label: 'Text Label', icon: <Type className="w-4 h-4" />, shortcut: 'T' },
-    ];
+  const [showStampPicker, setShowStampPicker] = useState(false);
+  const [showShapePicker, setShowShapePicker] = useState(false);
 
-    return (
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 select-none">
-        {/* Undo / Redo & Tidy Palette */}
+  const isDrawingTool = activeTool === 'pen' || activeTool === 'highlighter';
+
+  return (
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center gap-2 select-none pointer-events-auto">
+      {/* Floating Sub-palette when Pen/Highlighter or Stamp is Active */}
+      {isDrawingTool && (
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-[#181922]/95 backdrop-blur-xl border border-border/80 shadow-2xl animate-in fade-in slide-in-from-bottom-2 duration-150">
+          <span className="text-[11px] font-semibold text-muted-foreground uppercase mr-1">
+            {activeTool === 'pen' ? 'Pen' : 'Highlighter'}
+          </span>
+          <div className="flex items-center gap-1.5">
+            {FIGJAM_DRAWING_COLORS.map((c) => (
+              <button
+                key={c.name}
+                type="button"
+                onClick={() => setDrawingColor(c.color)}
+                className={`w-5 h-5 rounded-full border transition-transform cursor-pointer ${
+                  drawingColor === c.color ? 'scale-125 ring-2 ring-indigo-400 border-white' : 'border-white/20 hover:scale-110'
+                }`}
+                style={{ backgroundColor: c.color }}
+                title={c.name}
+              />
+            ))}
+          </div>
+
+          <div className="w-px h-4 bg-border/60 mx-1" />
+
+          {/* Stroke Width Selector */}
+          <div className="flex items-center gap-1">
+            {[
+              { label: 'S', width: 2 },
+              { label: 'M', width: 4 },
+              { label: 'L', width: 8 },
+            ].map((s) => (
+              <button
+                key={s.label}
+                type="button"
+                onClick={() => setDrawingWidth(s.width)}
+                className={`w-6 h-6 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                  drawingWidth === s.width
+                    ? 'bg-indigo-500 text-white shadow-xs'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60'
+                }`}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Stamp Picker Drawer */}
+      {showStampPicker && (
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-[#181922]/95 backdrop-blur-xl border border-border/80 shadow-2xl animate-in fade-in slide-in-from-bottom-2 duration-150">
+          <span className="text-[11px] font-semibold text-muted-foreground mr-1">Stamps:</span>
+          {FIGJAM_STAMP_EMOJIS.map((emoji) => (
+            <button
+              key={emoji}
+              type="button"
+              onClick={() => {
+                setActiveStamp(emoji);
+                setActiveTool('stamp');
+                setShowStampPicker(false);
+              }}
+              className={`p-1 text-xl rounded-xl hover:scale-125 transition-transform cursor-pointer ${
+                activeStamp === emoji && activeTool === 'stamp' ? 'bg-indigo-500/20 ring-1 ring-indigo-400' : ''
+              }`}
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Main FigJam Bottom Dock */}
+      <div className="flex items-center gap-2">
+        {/* History / Templates / Tidy */}
         <div className="flex items-center gap-1 p-1.5 rounded-2xl bg-[#181922]/95 backdrop-blur-xl border border-border/80 shadow-2xl shrink-0">
           <button
             type="button"
@@ -102,43 +209,335 @@ export const CanvasToolbar: React.FC<{
             <Redo2 className="w-4 h-4" />
           </button>
 
+          {onOpenTemplates && (
+            <>
+              <div className="w-px h-4 bg-border/60 mx-0.5" />
+              <button
+                type="button"
+                onClick={onOpenTemplates}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-pink-300 bg-pink-500/10 hover:bg-pink-500/20 border border-pink-500/30 transition-all shadow-xs cursor-pointer whitespace-nowrap"
+                title="1-Click FigJam Templates"
+              >
+                <LayoutTemplate className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Templates</span>
+              </button>
+            </>
+          )}
+
           <div className="w-px h-4 bg-border/60 mx-0.5" />
 
           <button
             type="button"
             onClick={onTidyUp}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 transition-all shadow-xs cursor-pointer whitespace-nowrap shrink-0"
-            title="One-Click Tidy Up & Auto-Layout"
+            title="One-Click Tidy Up"
           >
             <Sparkles className="w-3.5 h-3.5 shrink-0" />
-            <span className="whitespace-nowrap">Tidy Up</span>
+            <span className="hidden sm:inline whitespace-nowrap">Tidy</span>
           </button>
         </div>
 
-        {/* Primary Tool Palette */}
+        {/* Primary FigJam Toolset */}
         <div className="flex items-center gap-1 p-1.5 rounded-2xl bg-[#181922]/95 backdrop-blur-xl border border-border/80 shadow-2xl">
-          {tools.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setActiveTool(t.id)}
-              className={`p-2.5 rounded-xl text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer ${activeTool === t.id
+          {/* Select */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTool('select');
+              setShowStampPicker(false);
+              setShowShapePicker(false);
+            }}
+            className={`p-2.5 rounded-xl text-xs font-medium transition-all cursor-pointer ${
+              activeTool === 'select'
                 ? 'bg-primary text-primary-foreground shadow-md shadow-primary/25 scale-105'
                 : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60'
-                }`}
-              title={`${t.label} (${t.shortcut})`}
+            }`}
+            title="Select & Move (V)"
+          >
+            <MousePointer className="w-4 h-4" />
+          </button>
+
+          {/* Hand / Pan */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTool('hand');
+              setShowStampPicker(false);
+              setShowShapePicker(false);
+            }}
+            className={`p-2.5 rounded-xl text-xs font-medium transition-all cursor-pointer ${
+              activeTool === 'hand'
+                ? 'bg-primary text-primary-foreground shadow-md shadow-primary/25 scale-105'
+                : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60'
+            }`}
+            title="Pan Canvas (H / Space)"
+          >
+            <Hand className="w-4 h-4" />
+          </button>
+
+          <div className="w-px h-4 bg-border/60 mx-0.5" />
+
+          {/* Marker / Pen */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTool('pen');
+              setShowStampPicker(false);
+              setShowShapePicker(false);
+            }}
+            className={`p-2.5 rounded-xl text-xs font-medium transition-all cursor-pointer ${
+              activeTool === 'pen'
+                ? 'bg-indigo-500 text-white shadow-md shadow-indigo-500/25 scale-105'
+                : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60'
+            }`}
+            title="Pen / Marker Drawing (P)"
+          >
+            <PenTool className="w-4 h-4" />
+          </button>
+
+          {/* Highlighter */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTool('highlighter');
+              setShowStampPicker(false);
+              setShowShapePicker(false);
+            }}
+            className={`p-2.5 rounded-xl text-xs font-medium transition-all cursor-pointer ${
+              activeTool === 'highlighter'
+                ? 'bg-amber-500 text-white shadow-md shadow-amber-500/25 scale-105'
+                : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60'
+            }`}
+            title="Highlighter (B)"
+          >
+            <Highlighter className="w-4 h-4" />
+          </button>
+
+          {/* Eraser */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTool('eraser');
+              setShowStampPicker(false);
+              setShowShapePicker(false);
+            }}
+            className={`p-2.5 rounded-xl text-xs font-medium transition-all cursor-pointer ${
+              activeTool === 'eraser'
+                ? 'bg-rose-500 text-white shadow-md shadow-rose-500/25 scale-105'
+                : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60'
+            }`}
+            title="Eraser (E)"
+          >
+            <Eraser className="w-4 h-4" />
+          </button>
+
+          <div className="w-px h-4 bg-border/60 mx-0.5" />
+
+          {/* Sticky Note */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTool('sticky');
+              setShowStampPicker(false);
+              setShowShapePicker(false);
+            }}
+            className={`p-2.5 rounded-xl text-xs font-medium transition-all cursor-pointer ${
+              activeTool === 'sticky'
+                ? 'bg-primary text-primary-foreground shadow-md shadow-primary/25 scale-105'
+                : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60'
+            }`}
+            title="FigJam Sticky Note (S)"
+          >
+            <StickyNote className="w-4 h-4 text-amber-300" />
+          </button>
+
+          {/* FigJam Stamp Picker */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => {
+                setShowStampPicker(!showStampPicker);
+                setShowShapePicker(false);
+                setActiveTool('stamp');
+              }}
+              className={`p-2.5 rounded-xl text-xs font-medium flex items-center gap-1 transition-all cursor-pointer ${
+                activeTool === 'stamp'
+                  ? 'bg-primary text-primary-foreground shadow-md shadow-primary/25 scale-105'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60'
+              }`}
+              title="FigJam Stamp & Reactions (X)"
             >
-              {t.icon}
+              <Smile className="w-4 h-4 text-pink-400" />
+              <span className="text-xs">{activeStamp}</span>
             </button>
-          ))}
+          </div>
+
+          {/* Shapes Menu */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => {
+                setShowShapePicker(!showShapePicker);
+                setShowStampPicker(false);
+              }}
+              className={`p-2.5 rounded-xl text-xs font-medium transition-all cursor-pointer ${
+                ['rectangle', 'circle', 'diamond', 'pill'].includes(activeTool)
+                  ? 'bg-primary text-primary-foreground shadow-md shadow-primary/25 scale-105'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60'
+              }`}
+              title="Shapes (R)"
+            >
+              <Square className="w-4 h-4" />
+            </button>
+
+            {showShapePicker && (
+              <div className="absolute bottom-12 left-0 bg-[#1c1e28] border border-border/80 p-1.5 rounded-2xl shadow-2xl flex flex-col gap-1 z-50 min-w-[120px] animate-in fade-in zoom-in-95 duration-150">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTool('rectangle');
+                    setShowShapePicker(false);
+                  }}
+                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-xs text-foreground hover:bg-secondary/60 cursor-pointer"
+                >
+                  <Square className="w-3.5 h-3.5" />
+                  <span>Rectangle</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTool('circle');
+                    setShowShapePicker(false);
+                  }}
+                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-xs text-foreground hover:bg-secondary/60 cursor-pointer"
+                >
+                  <Circle className="w-3.5 h-3.5" />
+                  <span>Circle</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTool('diamond');
+                    setShowShapePicker(false);
+                  }}
+                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-xs text-foreground hover:bg-secondary/60 cursor-pointer"
+                >
+                  <Diamond className="w-3.5 h-3.5" />
+                  <span>Diamond</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTool('pill');
+                    setShowShapePicker(false);
+                  }}
+                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-xs text-foreground hover:bg-secondary/60 cursor-pointer"
+                >
+                  <Pill className="w-3.5 h-3.5" />
+                  <span>Pill</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Text Tool */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTool('text');
+              setShowStampPicker(false);
+              setShowShapePicker(false);
+            }}
+            className={`p-2.5 rounded-xl text-xs font-medium transition-all cursor-pointer ${
+              activeTool === 'text'
+                ? 'bg-primary text-primary-foreground shadow-md shadow-primary/25 scale-105'
+                : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60'
+            }`}
+            title="Text Label (T)"
+          >
+            <Type className="w-4 h-4" />
+          </button>
+
+          {/* Connector Arrow */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTool('arrow');
+              setShowStampPicker(false);
+              setShowShapePicker(false);
+            }}
+            className={`p-2.5 rounded-xl text-xs font-medium transition-all cursor-pointer ${
+              activeTool === 'arrow'
+                ? 'bg-primary text-primary-foreground shadow-md shadow-primary/25 scale-105'
+                : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60'
+            }`}
+            title="Connector Arrow (A)"
+          >
+            <ArrowUpRight className="w-4 h-4" />
+          </button>
+
+          {/* Section Frame */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTool('frame');
+              setShowStampPicker(false);
+              setShowShapePicker(false);
+            }}
+            className={`p-2.5 rounded-xl text-xs font-medium transition-all cursor-pointer ${
+              activeTool === 'frame'
+                ? 'bg-primary text-primary-foreground shadow-md shadow-primary/25 scale-105'
+                : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60'
+            }`}
+            title="Section Frame (F)"
+          >
+            <Layers className="w-4 h-4" />
+          </button>
+
+          {/* Spatial Canvas Mode specific shortcuts */}
+          {mode === 'canvas' && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTool('note_card');
+                  setShowStampPicker(false);
+                }}
+                className={`p-2.5 rounded-xl text-xs font-medium transition-all cursor-pointer ${
+                  activeTool === 'note_card'
+                    ? 'bg-primary text-primary-foreground shadow-md shadow-primary/25 scale-105'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60'
+                }`}
+                title="Embed Note Card (N)"
+              >
+                <FileText className="w-4 h-4" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTool('mindmap');
+                  setShowStampPicker(false);
+                }}
+                className={`p-2.5 rounded-xl text-xs font-medium transition-all cursor-pointer ${
+                  activeTool === 'mindmap'
+                    ? 'bg-primary text-primary-foreground shadow-md shadow-primary/25 scale-105'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60'
+                }`}
+                title="Mindmap Node (M)"
+              >
+                <GitBranch className="w-4 h-4" />
+              </button>
+            </>
+          )}
         </div>
 
-        {/* Viewport Zoom & Actions */}
-        <div className="flex items-center gap-1 p-1.5 rounded-2xl bg-[#181922]/95 backdrop-blur-xl border border-border/80 shadow-2xl text-xs">
+        {/* Viewport Zoom & Export */}
+        <div className="flex items-center gap-1 p-1.5 rounded-2xl bg-[#181922]/95 backdrop-blur-xl border border-border/80 shadow-2xl text-xs shrink-0">
           <button
             type="button"
             onClick={onZoomOut}
-            className="p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
+            className="p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors cursor-pointer"
             title="Zoom Out (-)"
           >
             <ZoomOut className="w-3.5 h-3.5" />
@@ -147,7 +546,7 @@ export const CanvasToolbar: React.FC<{
           <button
             type="button"
             onClick={onResetZoom}
-            className="px-2 py-1 rounded-lg font-mono text-[11px] text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors min-w-[48px] text-center"
+            className="px-2 py-1 rounded-lg font-mono text-[11px] text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors min-w-[48px] text-center cursor-pointer"
             title="Reset Zoom to 100%"
           >
             {Math.round(zoom * 100)}%
@@ -156,7 +555,7 @@ export const CanvasToolbar: React.FC<{
           <button
             type="button"
             onClick={onZoomIn}
-            className="p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
+            className="p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors cursor-pointer"
             title="Zoom In (+)"
           >
             <ZoomIn className="w-3.5 h-3.5" />
@@ -167,7 +566,7 @@ export const CanvasToolbar: React.FC<{
           <button
             type="button"
             onClick={onFitContent}
-            className="p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
+            className="p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors cursor-pointer"
             title="Fit to Content"
           >
             <Maximize2 className="w-3.5 h-3.5" />
@@ -176,8 +575,8 @@ export const CanvasToolbar: React.FC<{
           <button
             type="button"
             onClick={onExport}
-            className="p-2 rounded-xl text-muted-foreground hover:text-indigo-300 hover:bg-indigo-500/10 transition-colors"
-            title="Export Canvas JSON"
+            className="p-2 rounded-xl text-muted-foreground hover:text-indigo-300 hover:bg-indigo-500/10 transition-colors cursor-pointer"
+            title="Export JSON"
           >
             <Download className="w-3.5 h-3.5" />
           </button>
@@ -185,12 +584,13 @@ export const CanvasToolbar: React.FC<{
           <button
             type="button"
             onClick={onClear}
-            className="p-2 rounded-xl text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
-            title="Clear Canvas"
+            className="p-2 rounded-xl text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+            title="Clear Whiteboard"
           >
             <RotateCcw className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
-    );
-  };
+    </div>
+  );
+};

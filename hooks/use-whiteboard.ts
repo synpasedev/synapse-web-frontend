@@ -4,13 +4,156 @@ import { syncEngine } from '@/lib/dexie/sync-engine';
 import { DEFAULT_WORKSPACE_ID } from '@/lib/dexie/seed';
 import { Whiteboard, CanvasElement, CanvasConnection } from '@/types/domain';
 
-export function createStarterWhiteboard(workspaceId: string = DEFAULT_WORKSPACE_ID): Whiteboard {
+export function createStarterFigJamWhiteboard(workspaceId: string = DEFAULT_WORKSPACE_ID): Whiteboard {
+  const now = new Date().toISOString();
+  return {
+    id: `wb-figjam-${crypto.randomUUID().slice(0, 8)}`,
+    workspace_id: workspaceId,
+    title: 'Collaborative Whiteboard & Brainstorm',
+    icon: '📋',
+    board_type: 'whiteboard',
+    viewport: { x: 120, y: 80, zoom: 1.0 },
+    elements: [
+      {
+        id: 'el-fj-frame-1',
+        type: 'frame',
+        x: 180,
+        y: 120,
+        width: 820,
+        height: 460,
+        content: { title: '💡 Sprint Ideation & Brainstorm' },
+        z_index: 0,
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        id: 'el-fj-sticky-1',
+        type: 'sticky',
+        x: 220,
+        y: 190,
+        width: 220,
+        height: 180,
+        content: {
+          text: '🚀 User Experience\n• Super smooth freehand drawing\n• Real-time FigJam stamps & emojis\n• Sticky notes with author tags',
+          color: '#fef08a',
+          bg_color: '#713f12',
+          author: 'Subhadeep',
+        },
+        z_index: 5,
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        id: 'el-fj-sticky-2',
+        type: 'sticky',
+        x: 480,
+        y: 190,
+        width: 220,
+        height: 180,
+        content: {
+          text: '🎯 Features Needed\n• FigJam 1-click templates\n• Brainstorming timer widget\n• Shape connectors & quick colors',
+          color: '#fbcfe8',
+          bg_color: '#500724',
+          author: 'Team',
+        },
+        z_index: 5,
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        id: 'el-fj-sticky-3',
+        type: 'sticky',
+        x: 740,
+        y: 190,
+        width: 220,
+        height: 180,
+        content: {
+          text: '⚡ Action Items\n• Try the Pen (P) & Highlighter (B)!\n• Drop a reaction stamp with (X)\n• Set a 3-minute brainstorm timer',
+          color: '#bae6fd',
+          bg_color: '#082f49',
+          author: 'Lead',
+        },
+        z_index: 5,
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        id: 'el-fj-stamp-1',
+        type: 'stamp',
+        x: 400,
+        y: 340,
+        width: 48,
+        height: 48,
+        content: {
+          emoji: '🔥',
+          count: 5,
+          author: 'Subhadeep',
+        },
+        z_index: 20,
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        id: 'el-fj-stamp-2',
+        type: 'stamp',
+        x: 660,
+        y: 340,
+        width: 48,
+        height: 48,
+        content: {
+          emoji: '👍',
+          count: 3,
+        },
+        z_index: 20,
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        id: 'el-fj-drawing-1',
+        type: 'drawing',
+        x: 230,
+        y: 400,
+        width: 450,
+        height: 120,
+        content: {
+          tool_type: 'pen',
+          stroke_color: '#818cf8',
+          stroke_width: 3,
+          points: [
+            { x: 0, y: 40 },
+            { x: 40, y: 20 },
+            { x: 90, y: 45 },
+            { x: 140, y: 25 },
+            { x: 200, y: 35 },
+            { x: 280, y: 15 },
+            { x: 360, y: 30 },
+          ],
+        },
+        z_index: 15,
+        created_at: now,
+        updated_at: now,
+      },
+    ],
+    connections: [],
+    created_at: now,
+    updated_at: now,
+  };
+}
+
+export function createStarterWhiteboard(
+  workspaceId: string = DEFAULT_WORKSPACE_ID,
+  boardType: 'whiteboard' | 'canvas' = 'canvas'
+): Whiteboard {
+  if (boardType === 'whiteboard') {
+    return createStarterFigJamWhiteboard(workspaceId);
+  }
   const now = new Date().toISOString();
   return {
     id: `wb-${crypto.randomUUID().slice(0, 8)}`,
     workspace_id: workspaceId,
     title: 'Synapse Architecture & Mindmap',
     icon: '🎨',
+    board_type: 'canvas',
     viewport: { x: 180, y: 120, zoom: 1.0 },
     elements: [
       {
@@ -149,9 +292,10 @@ export function useWhiteboards(workspaceId: string = DEFAULT_WORKSPACE_ID) {
 
       // Auto-seed starter whiteboard if completely empty
       if (!list.length) {
-        const starter = createStarterWhiteboard(workspaceId);
-        await localDb.whiteboards.put(starter);
-        return [starter];
+        const starterCanvas = createStarterWhiteboard(workspaceId, 'canvas');
+        const starterWhiteboard = createStarterWhiteboard(workspaceId, 'whiteboard');
+        await localDb.whiteboards.bulkPut([starterCanvas, starterWhiteboard]);
+        return [starterCanvas, starterWhiteboard];
       }
 
       return list;
@@ -171,7 +315,7 @@ export function useWhiteboard(whiteboardId: string) {
       }
 
       if (!wb) {
-        wb = createStarterWhiteboard(DEFAULT_WORKSPACE_ID);
+        wb = createStarterWhiteboard(DEFAULT_WORKSPACE_ID, 'whiteboard');
         await localDb.whiteboards.put(wb);
       }
 
@@ -212,8 +356,9 @@ export function useMutateWhiteboard(whiteboardId: string) {
       const merged: Whiteboard = {
         id: whiteboardId,
         workspace_id: existing?.workspace_id || DEFAULT_WORKSPACE_ID,
-        title: updates.title ?? existing?.title ?? 'Untitled Canvas',
-        icon: updates.icon ?? existing?.icon ?? '🎨',
+        title: updates.title ?? existing?.title ?? 'Untitled Board',
+        icon: updates.icon ?? existing?.icon ?? '📋',
+        board_type: updates.board_type ?? existing?.board_type ?? 'whiteboard',
         viewport: updates.viewport ?? existing?.viewport ?? { x: 0, y: 0, zoom: 1 },
         elements: updates.elements ?? existing?.elements ?? [],
         connections: updates.connections ?? existing?.connections ?? [],
@@ -280,40 +425,68 @@ export function useCreateWhiteboard() {
   return useMutation({
     mutationFn: async ({
       workspaceId = DEFAULT_WORKSPACE_ID,
-      title = 'New Brainstorm Canvas',
-      icon = '🎨',
+      title,
+      icon,
+      board_type = 'whiteboard',
     }: {
       workspaceId?: string;
       title?: string;
       icon?: string;
+      board_type?: 'whiteboard' | 'canvas';
     }) => {
       const now = new Date().toISOString();
       const id = `wb-${crypto.randomUUID().slice(0, 8)}`;
+      const defaultTitle = board_type === 'whiteboard' ? 'New Whiteboard' : 'New Spatial Canvas';
+      const defaultIcon = board_type === 'whiteboard' ? '📋' : '🎨';
+
+      const starterElements: CanvasElement[] =
+        board_type === 'whiteboard'
+          ? [
+              {
+                id: `el-${crypto.randomUUID().slice(0, 8)}`,
+                type: 'sticky',
+                x: 250,
+                y: 180,
+                width: 220,
+                height: 180,
+                content: {
+                  text: '💡 Start brainstorming here...\n• Use Pen (P) or Highlighter (B)\n• Add stamps with (X)',
+                  color: '#fef08a',
+                  bg_color: '#713f12',
+                  author: 'You',
+                },
+                z_index: 1,
+                created_at: now,
+                updated_at: now,
+              },
+            ]
+          : [
+              {
+                id: `el-${crypto.randomUUID().slice(0, 8)}`,
+                type: 'sticky',
+                x: 250,
+                y: 180,
+                width: 220,
+                height: 180,
+                content: {
+                  text: '💡 Spatial Architecture Node',
+                  color: '#a7f3d0',
+                  bg_color: '#064e3b',
+                },
+                z_index: 1,
+                created_at: now,
+                updated_at: now,
+              },
+            ];
 
       const newCanvas: Whiteboard = {
         id,
         workspace_id: workspaceId,
-        title,
-        icon,
+        title: title || defaultTitle,
+        icon: icon || defaultIcon,
+        board_type,
         viewport: { x: 300, y: 200, zoom: 1.0 },
-        elements: [
-          {
-            id: `el-${crypto.randomUUID().slice(0, 8)}`,
-            type: 'sticky',
-            x: 250,
-            y: 180,
-            width: 220,
-            height: 180,
-            content: {
-              text: '💡 Start brainstorming ideas here...',
-              color: '#fef08a',
-              bg_color: '#713f12',
-            },
-            z_index: 1,
-            created_at: now,
-            updated_at: now,
-          },
-        ],
+        elements: starterElements,
         connections: [],
         created_at: now,
         updated_at: now,
@@ -327,6 +500,7 @@ export function useCreateWhiteboard() {
     },
   });
 }
+
 
 export function useDeleteWhiteboard() {
   const queryClient = useQueryClient();

@@ -2,14 +2,16 @@
 
 import React, { useState } from 'react';
 import { CanvasElement } from '@/types/domain';
-import { Trash2, Palette, FileUp } from 'lucide-react';
+import { Trash2, Palette, FileUp, User } from 'lucide-react';
 
-const PASTEL_COLORS = [
-  { name: 'Yellow', bg: '#713f12', text: '#fef08a', border: '#eab308' },
-  { name: 'Lavender', bg: '#3b0764', text: '#e9d5ff', border: '#a855f7' },
-  { name: 'Emerald', bg: '#064e3b', text: '#a7f3d0', border: '#10b981' },
-  { name: 'Rose', bg: '#4c0519', text: '#fecdd3', border: '#f43f5e' },
-  { name: 'Cyan', bg: '#083344', text: '#a5f3fc', border: '#06b6d4' },
+const FIGJAM_PASTELS = [
+  { name: 'Butter Yellow', bg: '#713f12', text: '#fef08a', border: '#eab308' },
+  { name: 'Bubblegum Pink', bg: '#500724', text: '#fbcfe8', border: '#f43f5e' },
+  { name: 'Sky Blue', bg: '#082f49', text: '#bae6fd', border: '#38bdf8' },
+  { name: 'Mint Green', bg: '#064e3b', text: '#a7f3d0', border: '#10b981' },
+  { name: 'Peach Orange', bg: '#431407', text: '#fed7aa', border: '#f97316' },
+  { name: 'Lavender Purple', bg: '#3b0764', text: '#e9d5ff', border: '#c084fc' },
+  { name: 'Slate Gray', bg: '#0f172a', text: '#cbd5e1', border: '#94a3b8' },
 ];
 
 export const StickyNoteElement: React.FC<{
@@ -23,6 +25,7 @@ export const StickyNoteElement: React.FC<{
   const [showPalette, setShowPalette] = useState(false);
   const color = element.content.color || '#fef08a';
   const bgColor = element.content.bg_color || '#713f12';
+  const author = element.content.author;
 
   return (
     <div
@@ -89,61 +92,97 @@ export const StickyNoteElement: React.FC<{
         style={{ color }}
       />
 
-      {/* Action Bar */}
-      <div className="flex items-center justify-between pt-2 border-t border-white/10 opacity-0 group-hover:opacity-100 transition-opacity">
-        <div className="flex items-center gap-1 relative">
-          <button
-            type="button"
-            onClick={() => setShowPalette(!showPalette)}
-            className="p-1 rounded-md hover:bg-white/10 transition-colors"
-            title="Change Color"
-          >
-            <Palette className="w-3.5 h-3.5" />
-          </button>
-
-          {onPromoteToNote && (
+      {/* Footer: Author Tag & Action Bar */}
+      <div className="flex items-center justify-between pt-2 border-t border-white/10">
+        {/* Author pill (FigJam signature) */}
+        <div className="flex items-center gap-1">
+          {author ? (
+            <span className="px-2 py-0.5 rounded-full bg-black/30 border border-white/10 text-[10px] font-medium opacity-80">
+              {author}
+            </span>
+          ) : (
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                onPromoteToNote();
+                onUpdate({
+                  content: { ...element.content, author: 'You' },
+                });
               }}
-              className="p-1 rounded-md hover:bg-white/10 transition-colors"
-              title="Promote to Full Workspace Note"
+              className="opacity-0 group-hover:opacity-60 hover:opacity-100 p-0.5 rounded text-[10px] flex items-center gap-0.5 transition-opacity"
+              title="Add Author Tag"
             >
-              <FileUp className="w-3.5 h-3.5" />
+              <User className="w-2.5 h-2.5" />
+              <span>Sign</span>
             </button>
-          )}
-
-          {showPalette && (
-            <div className="absolute left-0 bottom-7 bg-[#1c1e28] border border-border/80 p-1.5 rounded-xl shadow-2xl flex gap-1.5 z-50">
-              {PASTEL_COLORS.map((c) => (
-                <button
-                  key={c.name}
-                  type="button"
-                  onClick={() => {
-                    onUpdate({
-                      content: { ...element.content, color: c.text, bg_color: c.bg },
-                    });
-                    setShowPalette(false);
-                  }}
-                  className="w-4 h-4 rounded-full border border-white/20 hover:scale-110 transition-transform"
-                  style={{ backgroundColor: c.text }}
-                  title={c.name}
-                />
-              ))}
-            </div>
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={onDelete}
-          className="p-1 rounded-md hover:bg-rose-500/20 text-rose-300 transition-colors"
-          title="Delete Note"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
+        {/* Action Bar */}
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="flex items-center gap-1 relative">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowPalette(!showPalette);
+              }}
+              className="p-1 rounded-md hover:bg-white/10 transition-colors"
+              title="Change Color"
+            >
+              <Palette className="w-3.5 h-3.5" />
+            </button>
+
+            {onPromoteToNote && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPromoteToNote();
+                }}
+                className="p-1 rounded-md hover:bg-white/10 transition-colors"
+                title="Promote to Full Workspace Note"
+              >
+                <FileUp className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {showPalette && (
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="absolute left-0 bottom-7 bg-[#1c1e28] border border-border/80 p-1.5 rounded-xl shadow-2xl flex gap-1.5 z-50 animate-in fade-in zoom-in-95 duration-150"
+              >
+                {FIGJAM_PASTELS.map((c) => (
+                  <button
+                    key={c.name}
+                    type="button"
+                    onClick={() => {
+                      onUpdate({
+                        content: { ...element.content, color: c.text, bg_color: c.bg },
+                      });
+                      setShowPalette(false);
+                    }}
+                    className="w-4 h-4 rounded-full border border-white/20 hover:scale-125 transition-transform cursor-pointer"
+                    style={{ backgroundColor: c.text }}
+                    title={c.name}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            className="p-1 rounded-md hover:bg-rose-500/20 text-rose-300 transition-colors cursor-pointer"
+            title="Delete Note"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
     </div>
   );

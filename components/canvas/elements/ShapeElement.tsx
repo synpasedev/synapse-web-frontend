@@ -15,7 +15,7 @@ export const ShapeElement: React.FC<{
 
   let shapeClass = 'rounded-2xl';
   if (shape === 'circle') shapeClass = 'rounded-full';
-  if (shape === 'diamond') shapeClass = 'rotate-45 rounded-lg';
+  if (shape === 'diamond') shapeClass = 'rotate-45 rounded-xl';
   if (shape === 'pill') shapeClass = 'rounded-full';
 
   return (
@@ -24,7 +24,7 @@ export const ShapeElement: React.FC<{
         isSelected ? 'ring-2 ring-indigo-400 shadow-indigo-500/30' : ''
       }`}
       style={{
-        backgroundColor: `${color}22`,
+        backgroundColor: `${color}25`,
         borderColor: strokeColor,
       }}
     >
@@ -77,10 +77,10 @@ export const ShapeElement: React.FC<{
             content: { ...element.content, text: e.target.value },
           })
         }
-        className={`w-full bg-transparent border-none outline-none text-center font-medium text-xs text-foreground placeholder:text-muted-foreground/40 ${
+        className={`w-full bg-transparent border-none outline-none text-center font-semibold text-xs text-foreground placeholder:text-muted-foreground/40 ${
           shape === 'diamond' ? '-rotate-45' : ''
         }`}
-        placeholder="Label..."
+        placeholder="Shape Label..."
       />
     </div>
   );

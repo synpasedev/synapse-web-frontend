@@ -18,6 +18,7 @@ import {
   FileText,
   Network,
   Palette,
+  Presentation,
   Database,
   LayoutTemplate,
   Plus,
@@ -66,20 +67,37 @@ export const AppSidebar: React.FC<{ workspaceId: string }> = ({ workspaceId }) =
     router.push(`/${workspaceId}/notes/${note.id}`);
   };
 
+  const handleCreateNewWhiteboard = async () => {
+    const existingWbs = (whiteboards || []).filter((b) => b.board_type === 'whiteboard');
+    const nextNum = existingWbs.length + 1;
+    const title = `Whiteboard #${nextNum}`;
+    const newBoard = await createWhiteboard({
+      workspaceId,
+      title,
+      icon: '📋',
+      board_type: 'whiteboard',
+    });
+    router.push(`/${workspaceId}/whiteboards/${newBoard.id}`);
+  };
+
   const handleCreateNewCanvas = async () => {
-    const existingBoards = whiteboards || [];
-    const nextNum = existingBoards.length + 1;
+    const existingCanvases = (whiteboards || []).filter((b) => b.board_type !== 'whiteboard');
+    const nextNum = existingCanvases.length + 1;
     const title = `Canvas Board #${nextNum}`;
     const newBoard = await createWhiteboard({
       workspaceId,
       title,
       icon: '🎨',
+      board_type: 'canvas',
     });
     router.push(`/${workspaceId}/canvas/${newBoard.id}`);
   };
 
   const favoriteNotes = notes?.filter((n) => n.is_favorite) || [];
   const regularNotes = notes || [];
+
+  const figjamWhiteboards = (whiteboards || []).filter((b) => b.board_type === 'whiteboard');
+  const spatialCanvases = (whiteboards || []).filter((b) => b.board_type !== 'whiteboard');
 
   if (!isSidebarOpen) {
     return (
@@ -139,8 +157,8 @@ export const AppSidebar: React.FC<{ workspaceId: string }> = ({ workspaceId }) =
         </button>
       </div>
 
-      {/* Navigation Sections */}
-      <div className="px-2.5 py-1.5 space-y-0.5 border-b border-border/30 text-xs">
+      {/* Navigation Links */}
+      <div className="px-2 py-1 space-y-0.5 text-xs">
         <Link
           href={`/${workspaceId}/notes`}
           className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg font-medium transition-colors ${
@@ -166,15 +184,27 @@ export const AppSidebar: React.FC<{ workspaceId: string }> = ({ workspaceId }) =
         </Link>
 
         <Link
-          href={`/${workspaceId}/canvas`}
+          href={`/${workspaceId}/whiteboards`}
           className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg font-medium transition-colors ${
-            pathname === `/${workspaceId}/canvas`
-              ? 'bg-indigo-500/10 text-indigo-300 font-semibold'
+            pathname.startsWith(`/${workspaceId}/whiteboards`)
+              ? 'bg-indigo-500/15 text-indigo-300 font-semibold border border-indigo-500/20'
               : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
           }`}
         >
-          <Palette className="w-3.5 h-3.5 text-pink-300" />
-          <span>Whiteboard & Canvas</span>
+          <Presentation className="w-3.5 h-3.5 text-indigo-400" />
+          <span>Whiteboards</span>
+        </Link>
+
+        <Link
+          href={`/${workspaceId}/canvas`}
+          className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg font-medium transition-colors ${
+            pathname.startsWith(`/${workspaceId}/canvas`)
+              ? 'bg-pink-500/15 text-pink-300 font-semibold border border-pink-500/20'
+              : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+          }`}
+        >
+          <Palette className="w-3.5 h-3.5 text-pink-400" />
+          <span>Spatial Canvases</span>
         </Link>
 
         <Link
@@ -199,7 +229,7 @@ export const AppSidebar: React.FC<{ workspaceId: string }> = ({ workspaceId }) =
         </button>
       </div>
 
-      {/* Sidebar Collections: Notes, Canvases, Databases */}
+      {/* Sidebar Collections: Notes, Whiteboards, Canvases, Databases */}
       <div className="flex-1 overflow-y-auto py-2.5 space-y-3.5">
         {favoriteNotes.length > 0 && (
           <div>
@@ -229,10 +259,34 @@ export const AppSidebar: React.FC<{ workspaceId: string }> = ({ workspaceId }) =
           <NoteTree notes={regularNotes} workspaceId={workspaceId} />
         </div>
 
-        {/* Canvases Section */}
+        {/* FigJam Whiteboards Section */}
         <div>
           <div className="px-3.5 mb-1 flex items-center justify-between text-[10px] font-medium tracking-wider text-muted-foreground/70 uppercase">
-            <span>Canvases</span>
+            <span>Whiteboards</span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handleCreateNewWhiteboard}
+                className="p-0.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                title="Create New Whiteboard"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+              <span className="text-[10px] font-mono">{figjamWhiteboards.length}</span>
+            </div>
+          </div>
+          <CanvasList
+            whiteboards={figjamWhiteboards}
+            workspaceId={workspaceId}
+            baseRoute="whiteboards"
+            emptyText="No whiteboards yet."
+          />
+        </div>
+
+        {/* Spatial Canvases Section */}
+        <div>
+          <div className="px-3.5 mb-1 flex items-center justify-between text-[10px] font-medium tracking-wider text-muted-foreground/70 uppercase">
+            <span>Spatial Canvases</span>
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
@@ -242,10 +296,15 @@ export const AppSidebar: React.FC<{ workspaceId: string }> = ({ workspaceId }) =
               >
                 <Plus className="w-3.5 h-3.5" />
               </button>
-              <span className="text-[10px] font-mono">{whiteboards?.length || 0}</span>
+              <span className="text-[10px] font-mono">{spatialCanvases.length}</span>
             </div>
           </div>
-          <CanvasList whiteboards={whiteboards || []} workspaceId={workspaceId} />
+          <CanvasList
+            whiteboards={spatialCanvases}
+            workspaceId={workspaceId}
+            baseRoute="canvas"
+            emptyText="No canvases yet."
+          />
         </div>
 
         {/* Databases Section */}

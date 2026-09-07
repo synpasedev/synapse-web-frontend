@@ -11,6 +11,9 @@ import { NoteCardElement } from './elements/NoteCardElement';
 import { MindmapNodeElement } from './elements/MindmapNodeElement';
 import { ShapeElement } from './elements/ShapeElement';
 import { FrameElement } from './elements/FrameElement';
+import { StampElement } from './elements/StampElement';
+import { TextElement } from './elements/TextElement';
+import { FigJamTemplateModal } from './FigJamTemplateModal';
 import { Copy, Trash2, X } from 'lucide-react';
 
 interface HistorySnapshot {
@@ -18,10 +21,35 @@ interface HistorySnapshot {
   connections: CanvasConnection[];
 }
 
+function getSvgPathFromPoints(
+  points: Array<{ x: number; y: number }>,
+  offsetX = 0,
+  offsetY = 0
+): string {
+  if (!points || points.length === 0) return '';
+  if (points.length === 1) {
+    return `M ${points[0].x + offsetX} ${points[0].y + offsetY} L ${
+      points[0].x + offsetX + 0.1
+    } ${points[0].y + offsetY + 0.1}`;
+  }
+  let d = `M ${points[0].x + offsetX} ${points[0].y + offsetY}`;
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1];
+    const curr = points[i];
+    const midX = (prev.x + curr.x) / 2 + offsetX;
+    const midY = (prev.y + curr.y) / 2 + offsetY;
+    d += ` Q ${prev.x + offsetX} ${prev.y + offsetY}, ${midX} ${midY}`;
+  }
+  const last = points[points.length - 1];
+  d += ` L ${last.x + offsetX} ${last.y + offsetY}`;
+  return d;
+}
+
 export const WhiteboardCanvas: React.FC<{
   whiteboard: Whiteboard;
   workspaceId: string;
-}> = ({ whiteboard, workspaceId }) => {
+  mode?: 'whiteboard' | 'canvas';
+}> = ({ whiteboard, workspaceId, mode = 'whiteboard' }) => {
   const { mutate: updateWhiteboard } = useMutateWhiteboard(whiteboard.id);
   const { mutateAsync: createNote } = useCreateNote();
 
@@ -29,6 +57,14 @@ export const WhiteboardCanvas: React.FC<{
   const [connections, setConnections] = useState<CanvasConnection[]>(whiteboard.connections || []);
   const [viewport, setViewport] = useState(whiteboard.viewport || { x: 0, y: 0, zoom: 1 });
   const [activeTool, setActiveTool] = useState<ActiveTool>('select');
+
+  // Drawing & FigJam Tool Settings
+  const [drawingColor, setDrawingColor] = useState('#818cf8');
+  const [drawingWidth, setDrawingWidth] = useState(3);
+  const [activeStamp, setActiveStamp] = useState('👍');
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [currentDrawingPoints, setCurrentDrawingPoints] = useState<Array<{ x: number; y: number }>>([]);
+  const [templateModalOpen, setTemplateModalOpen] = useState(false);
 
   // Multi-Selection State
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -118,46 +154,47 @@ export const WhiteboardCanvas: React.FC<{
 
   const handleUndo = useCallback(() => {
     if (historyIndex > 0) {
-      const prev = history[historyIndex - 1];
-      setHistoryIndex(historyIndex - 1);
-      setElements(prev.elements);
-      setConnections(prev.connections);
-      persistChanges(prev.elements, prev.connections);
+      const targetIndex = historyIndex - 1;
+      const snap = history[targetIndex];
+      setElements(snap.elements);
+      setConnections(snap.connections);
+      setHistoryIndex(targetIndex);
+      setSelectedIds(new Set());
+      persistChanges(snap.elements, snap.connections);
     }
   }, [historyIndex, history, persistChanges]);
 
   const handleRedo = useCallback(() => {
     if (historyIndex < history.length - 1) {
-      const next = history[historyIndex + 1];
-      setHistoryIndex(historyIndex + 1);
-      setElements(next.elements);
-      setConnections(next.connections);
-      persistChanges(next.elements, next.connections);
+      const targetIndex = historyIndex + 1;
+      const snap = history[targetIndex];
+      setElements(snap.elements);
+      setConnections(snap.connections);
+      setHistoryIndex(targetIndex);
+      setSelectedIds(new Set());
+      persistChanges(snap.elements, snap.connections);
     }
   }, [historyIndex, history, persistChanges]);
 
-  // Delete All Selected Elements
   const handleDeleteSelected = useCallback(() => {
     if (selectedIds.size === 0) return;
-    const updatedElements = elements.filter((el) => !selectedIds.has(el.id));
-    const updatedConnections = connections.filter(
+    const remainingElements = elements.filter((el) => !selectedIds.has(el.id));
+    const remainingConnections = connections.filter(
       (c) => !selectedIds.has(c.from_element_id) && !selectedIds.has(c.to_element_id)
     );
-    setElements(updatedElements);
-    setConnections(updatedConnections);
+    setElements(remainingElements);
+    setConnections(remainingConnections);
     setSelectedIds(new Set());
-    pushHistory(updatedElements, updatedConnections);
-    persistChanges(updatedElements, updatedConnections);
+    pushHistory(remainingElements, remainingConnections);
+    persistChanges(remainingElements, remainingConnections);
   }, [selectedIds, elements, connections, pushHistory, persistChanges]);
 
-  // Duplicate All Selected Elements (Ctrl+D)
   const handleDuplicateSelected = useCallback(() => {
     if (selectedIds.size === 0) return;
-    const idMap = new Map<string, string>();
     const now = new Date().toISOString();
-    const duplicatedElements: CanvasElement[] = [];
+    const idMap = new Map<string, string>();
 
-    // Duplicate nodes offset by +30px, +30px
+    const duplicatedElements: CanvasElement[] = [];
     elements.forEach((el) => {
       if (selectedIds.has(el.id)) {
         const newId = `el-${crypto.randomUUID().slice(0, 8)}`;
@@ -165,25 +202,22 @@ export const WhiteboardCanvas: React.FC<{
         duplicatedElements.push({
           ...el,
           id: newId,
-          x: el.x + 30,
-          y: el.y + 30,
+          x: el.x + 40,
+          y: el.y + 40,
           created_at: now,
           updated_at: now,
         });
       }
     });
 
-    // Duplicate connections between duplicated nodes
     const duplicatedConnections: CanvasConnection[] = [];
     connections.forEach((conn) => {
-      const newFrom = idMap.get(conn.from_element_id);
-      const newTo = idMap.get(conn.to_element_id);
-      if (newFrom && newTo) {
+      if (idMap.has(conn.from_element_id) && idMap.has(conn.to_element_id)) {
         duplicatedConnections.push({
           ...conn,
           id: `conn-${crypto.randomUUID().slice(0, 8)}`,
-          from_element_id: newFrom,
-          to_element_id: newTo,
+          from_element_id: idMap.get(conn.from_element_id)!,
+          to_element_id: idMap.get(conn.to_element_id)!,
         });
       }
     });
@@ -192,44 +226,38 @@ export const WhiteboardCanvas: React.FC<{
     const updatedConnections = [...connections, ...duplicatedConnections];
     setElements(updatedElements);
     setConnections(updatedConnections);
-    setSelectedIds(new Set(duplicatedElements.map((e) => e.id)));
+    setSelectedIds(new Set(duplicatedElements.map((el) => el.id)));
     pushHistory(updatedElements, updatedConnections);
     persistChanges(updatedElements, updatedConnections);
   }, [selectedIds, elements, connections, pushHistory, persistChanges]);
 
-  // Nudge Selected Elements with Arrow Keys
   const handleNudgeSelected = useCallback(
     (dx: number, dy: number) => {
       if (selectedIds.size === 0) return;
-      const updated = elements.map((el) =>
-        selectedIds.has(el.id)
-          ? { ...el, x: Math.round(el.x + dx), y: Math.round(el.y + dy) }
-          : el
-      );
+      const updated = elements.map((el) => {
+        if (selectedIds.has(el.id)) {
+          return { ...el, x: el.x + dx, y: el.y + dy };
+        }
+        return el;
+      });
       setElements(updated);
-      persistChanges(updated);
+      pushHistory(updated, connections);
+      persistChanges(updated, connections);
     },
-    [selectedIds, elements, persistChanges]
+    [selectedIds, elements, connections, pushHistory, persistChanges]
   );
 
-  // Figma-like Keyboard Shortcuts
+  // Keyboard Shortcuts (Figma/FigJam Style)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (
-        target &&
-        (target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.isContentEditable ||
-          target.closest('[contenteditable="true"]'))
-      ) {
+      const tag = (e.target as HTMLElement).tagName.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || (e.target as HTMLElement).isContentEditable) {
         return;
       }
 
-      const cmdOrCtrl = e.ctrlKey || e.metaKey;
+      const isCtrl = e.ctrlKey || e.metaKey;
 
-      // Undo / Redo
-      if (cmdOrCtrl && e.key.toLowerCase() === 'z') {
+      if (isCtrl && e.key.toLowerCase() === 'z') {
         e.preventDefault();
         if (e.shiftKey) {
           handleRedo();
@@ -239,75 +267,78 @@ export const WhiteboardCanvas: React.FC<{
         return;
       }
 
-      if (cmdOrCtrl && e.key.toLowerCase() === 'y') {
+      if (isCtrl && e.key.toLowerCase() === 'y') {
         e.preventDefault();
         handleRedo();
         return;
       }
 
-      // Ctrl + A: Select All Elements
-      if (cmdOrCtrl && e.key.toLowerCase() === 'a') {
+      if (isCtrl && e.key.toLowerCase() === 'a') {
         e.preventDefault();
         setSelectedIds(new Set(elements.map((el) => el.id)));
         return;
       }
 
-      // Ctrl + D: Duplicate Selected Elements
-      if (cmdOrCtrl && e.key.toLowerCase() === 'd') {
+      if (isCtrl && e.key.toLowerCase() === 'd') {
         e.preventDefault();
         handleDuplicateSelected();
         return;
       }
 
-      // Delete or Backspace: Delete All Selected
       if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
         handleDeleteSelected();
         return;
       }
 
-      // Escape: Deselect All / Cancel Connector
       if (e.key === 'Escape') {
         e.preventDefault();
         setSelectedIds(new Set());
         setConnectingFrom(null);
+        setActiveTool('select');
         return;
       }
 
-      // Arrow Keys: Nudge Selected Elements (Shift for 10px, default 2px)
-      if (
-        e.key === 'ArrowUp' ||
-        e.key === 'ArrowDown' ||
-        e.key === 'ArrowLeft' ||
-        e.key === 'ArrowRight'
-      ) {
-        if (selectedIds.size > 0) {
-          e.preventDefault();
-          const step = e.shiftKey ? 10 : 2;
-          let dx = 0;
-          let dy = 0;
-          if (e.key === 'ArrowUp') dy = -step;
-          if (e.key === 'ArrowDown') dy = step;
-          if (e.key === 'ArrowLeft') dx = -step;
-          if (e.key === 'ArrowRight') dx = step;
-          handleNudgeSelected(dx, dy);
-          return;
-        }
+      // Arrow Key Nudges
+      const nudgeAmount = e.shiftKey ? 10 : 1;
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        handleNudgeSelected(0, -nudgeAmount);
+        return;
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        handleNudgeSelected(0, nudgeAmount);
+        return;
+      }
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        handleNudgeSelected(-nudgeAmount, 0);
+        return;
+      }
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        handleNudgeSelected(nudgeAmount, 0);
+        return;
       }
 
-      // Single-Key Tool Switching
-      if (!cmdOrCtrl && !e.altKey) {
+      // Tool Shortcuts
+      if (!isCtrl && !e.altKey) {
         const k = e.key.toLowerCase();
         if (k === 'v') setActiveTool('select');
         else if (k === 'h') setActiveTool('hand');
+        else if (k === 'p') setActiveTool('pen');
+        else if (k === 'b') setActiveTool('highlighter');
+        else if (k === 'e') setActiveTool('eraser');
         else if (k === 's') setActiveTool('sticky');
-        else if (k === 'n') setActiveTool('note_card');
-        else if (k === 'm') setActiveTool('mindmap');
-        else if (k === 'f') setActiveTool('frame');
+        else if (k === 'x') setActiveTool('stamp');
+        else if (k === 't') setActiveTool('text');
         else if (k === 'r') setActiveTool('rectangle');
         else if (k === 'o') setActiveTool('circle');
-        else if (k === 't') setActiveTool('text');
         else if (k === 'a') setActiveTool('arrow');
+        else if (k === 'f') setActiveTool('frame');
+        else if (k === 'n') setActiveTool('note_card');
+        else if (k === 'm') setActiveTool('mindmap');
       }
     };
 
@@ -342,9 +373,9 @@ export const WhiteboardCanvas: React.FC<{
     }
   };
 
-  // Double Click Canvas = Quick Sticky Note Creation
+  // Double Click Canvas = Quick FigJam Sticky Note Creation
   const handleDoubleClick = (e: React.MouseEvent) => {
-    if (dragState?.didMove) return;
+    if (dragState?.didMove || isDrawing) return;
     const { x, y } = screenToCanvas(e.clientX, e.clientY);
     const id = `el-${crypto.randomUUID().slice(0, 8)}`;
     const now = new Date().toISOString();
@@ -354,9 +385,9 @@ export const WhiteboardCanvas: React.FC<{
       type: 'sticky',
       x: Math.round(x - 100),
       y: Math.round(y - 80),
-      width: 200,
+      width: 210,
       height: 180,
-      content: { text: '', color: '#fef08a', bg_color: '#713f12' },
+      content: { text: '', color: '#fef08a', bg_color: '#713f12', author: 'You' },
       z_index: elements.length + 1,
       created_at: now,
       updated_at: now,
@@ -376,9 +407,13 @@ export const WhiteboardCanvas: React.FC<{
       return;
     }
 
-    // If user just performed a marquee drag, do NOT deselect!
     if (didMarqueeDragRef.current) {
       didMarqueeDragRef.current = false;
+      return;
+    }
+
+    // Do not interfere if user was drawing
+    if (activeTool === 'pen' || activeTool === 'highlighter' || activeTool === 'eraser') {
       return;
     }
 
@@ -401,12 +436,69 @@ export const WhiteboardCanvas: React.FC<{
       newElement = {
         id,
         type: 'sticky',
-        x: Math.round(x - 100),
-        y: Math.round(y - 80),
-        width: 200,
+        x: Math.round(x - 105),
+        y: Math.round(y - 90),
+        width: 210,
         height: 180,
-        content: { text: '', color: '#fef08a', bg_color: '#713f12' },
+        content: { text: '', color: '#fef08a', bg_color: '#713f12', author: 'You' },
         z_index: elements.length + 1,
+        created_at: now,
+        updated_at: now,
+      };
+    } else if (activeTool === 'stamp') {
+      newElement = {
+        id,
+        type: 'stamp',
+        x: Math.round(x - 24),
+        y: Math.round(y - 24),
+        width: 48,
+        height: 48,
+        content: { emoji: activeStamp, count: 1, author: 'You' },
+        z_index: elements.length + 10,
+        created_at: now,
+        updated_at: now,
+      };
+    } else if (activeTool === 'text') {
+      newElement = {
+        id,
+        type: 'text',
+        x: Math.round(x - 70),
+        y: Math.round(y - 20),
+        width: 160,
+        height: 48,
+        content: { text: 'Text Label', font_size: 18, color: '#f8fafc' },
+        z_index: elements.length + 1,
+        created_at: now,
+        updated_at: now,
+      };
+    } else if (
+      activeTool === 'rectangle' ||
+      activeTool === 'circle' ||
+      activeTool === 'diamond' ||
+      activeTool === 'pill'
+    ) {
+      newElement = {
+        id,
+        type: 'shape',
+        x: Math.round(x - 80),
+        y: Math.round(y - 80),
+        width: activeTool === 'pill' ? 180 : 160,
+        height: activeTool === 'pill' ? 70 : 160,
+        content: { shape_type: activeTool, color: '#6366f1', text: '' },
+        z_index: elements.length + 1,
+        created_at: now,
+        updated_at: now,
+      };
+    } else if (activeTool === 'frame') {
+      newElement = {
+        id,
+        type: 'frame',
+        x: Math.round(x - 200),
+        y: Math.round(y - 150),
+        width: 440,
+        height: 320,
+        content: { title: 'Project Section' },
+        z_index: 0,
         created_at: now,
         updated_at: now,
       };
@@ -436,52 +528,15 @@ export const WhiteboardCanvas: React.FC<{
         created_at: now,
         updated_at: now,
       };
-    } else if (activeTool === 'frame') {
-      newElement = {
-        id,
-        type: 'frame',
-        x: Math.round(x - 200),
-        y: Math.round(y - 150),
-        width: 400,
-        height: 300,
-        content: { title: 'Project Section' },
-        z_index: 0,
-        created_at: now,
-        updated_at: now,
-      };
-    } else if (activeTool === 'rectangle' || activeTool === 'circle') {
-      newElement = {
-        id,
-        type: 'shape',
-        x: Math.round(x - 80),
-        y: Math.round(y - 80),
-        width: 160,
-        height: 160,
-        content: { shape_type: activeTool, color: '#6366f1', text: '' },
-        z_index: elements.length + 1,
-        created_at: now,
-        updated_at: now,
-      };
-    } else if (activeTool === 'text') {
-      newElement = {
-        id,
-        type: 'text',
-        x: Math.round(x - 60),
-        y: Math.round(y - 20),
-        width: 140,
-        height: 40,
-        content: { text: 'Text Label', font_size: 16 },
-        z_index: elements.length + 1,
-        created_at: now,
-        updated_at: now,
-      };
     }
 
     if (newElement) {
       const updated = [...elements, newElement];
       setElements(updated);
       setSelectedIds(new Set([newElement.id]));
-      setActiveTool('select');
+      if (activeTool !== 'stamp') {
+        setActiveTool('select');
+      }
       pushHistory(updated, connections);
       persistChanges(updated);
     }
@@ -532,6 +587,17 @@ export const WhiteboardCanvas: React.FC<{
 
   // Element Mouse Down (Supports Ctrl/Shift Click Multi-Select & Multi-Element Drag)
   const handleElementMouseDown = (e: React.MouseEvent, element: CanvasElement) => {
+    if (activeTool === 'eraser') {
+      e.stopPropagation();
+      handleDeleteElement(element.id);
+      return;
+    }
+
+    if (activeTool === 'pen' || activeTool === 'highlighter') {
+      // Allow drawing across element boundaries
+      return;
+    }
+
     e.stopPropagation();
 
     if (connectingFrom) {
@@ -573,7 +639,6 @@ export const WhiteboardCanvas: React.FC<{
       }
     }
 
-    // Determine all moving elements
     const movingIds = isMultiKey
       ? nextSelected
       : wasAlreadySelected
@@ -587,7 +652,6 @@ export const WhiteboardCanvas: React.FC<{
       }
     });
 
-    // Enclosed frame elements
     const frameEnclosed: Array<{ id: string; dx: number; dy: number }> = [];
     elements.forEach((el) => {
       if (movingIds.has(el.id) && el.type === 'frame') {
@@ -622,8 +686,15 @@ export const WhiteboardCanvas: React.FC<{
     });
   };
 
-  // Canvas Mouse Down: Pan or Marquee Box Selection
+  // Canvas Mouse Down: Freehand Pen / Highlighter, Pan, or Marquee Box Selection
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
+    if (activeTool === 'pen' || activeTool === 'highlighter') {
+      const canvasPos = screenToCanvas(e.clientX, e.clientY);
+      setIsDrawing(true);
+      setCurrentDrawingPoints([canvasPos]);
+      return;
+    }
+
     if (activeTool === 'hand' || e.button === 1) {
       setIsPanning(true);
       setPanStart({ x: e.clientX, y: e.clientY });
@@ -644,6 +715,27 @@ export const WhiteboardCanvas: React.FC<{
   const handleMouseMove = (e: React.MouseEvent) => {
     const canvasPos = screenToCanvas(e.clientX, e.clientY);
     setMouseCanvasPos(canvasPos);
+
+    // Freehand Drawing in progress
+    if (isDrawing) {
+      setCurrentDrawingPoints((prev) => [...prev, canvasPos]);
+      return;
+    }
+
+    // Eraser drag across elements
+    if (activeTool === 'eraser' && e.buttons === 1) {
+      const hit = elements.find(
+        (el) =>
+          canvasPos.x >= el.x &&
+          canvasPos.x <= el.x + el.width &&
+          canvasPos.y >= el.y &&
+          canvasPos.y <= el.y + el.height
+      );
+      if (hit) {
+        handleDeleteElement(hit.id);
+      }
+      return;
+    }
 
     if (isPanning) {
       setViewport((prev) => ({
@@ -721,6 +813,52 @@ export const WhiteboardCanvas: React.FC<{
   };
 
   const handleMouseUp = () => {
+    // Finalize Freehand Drawing Stroke
+    if (isDrawing) {
+      setIsDrawing(false);
+      if (currentDrawingPoints.length > 1) {
+        const xs = currentDrawingPoints.map((p) => p.x);
+        const ys = currentDrawingPoints.map((p) => p.y);
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+
+        const normalizedPoints = currentDrawingPoints.map((p) => ({
+          x: Math.round(p.x - minX),
+          y: Math.round(p.y - minY),
+        }));
+
+        const now = new Date().toISOString();
+        const strokeW = activeTool === 'highlighter' ? drawingWidth * 3.5 : drawingWidth;
+
+        const newDrawing: CanvasElement = {
+          id: `el-draw-${crypto.randomUUID().slice(0, 8)}`,
+          type: 'drawing',
+          x: Math.round(minX),
+          y: Math.round(minY),
+          width: Math.max(Math.round(maxX - minX), 16),
+          height: Math.max(Math.round(maxY - minY), 16),
+          content: {
+            tool_type: activeTool as 'pen' | 'highlighter',
+            stroke_color: drawingColor,
+            stroke_width: strokeW,
+            points: normalizedPoints,
+          },
+          z_index: elements.length + 5,
+          created_at: now,
+          updated_at: now,
+        };
+
+        const updated = [...elements, newDrawing];
+        setElements(updated);
+        pushHistory(updated, connections);
+        persistChanges(updated);
+      }
+      setCurrentDrawingPoints([]);
+      return;
+    }
+
     if (dragState) {
       if (
         !dragState.didMove &&
@@ -728,7 +866,6 @@ export const WhiteboardCanvas: React.FC<{
         dragState.wasAlreadySelected &&
         selectedIds.size > 1
       ) {
-        // Collapses multi-selection to clicked element if just clicked without dragging
         setSelectedIds(new Set([dragState.clickedId]));
       } else if (dragState.didMove) {
         pushHistory(elements, connections);
@@ -747,22 +884,20 @@ export const WhiteboardCanvas: React.FC<{
     }
   };
 
-  // Global window mouseup listener ensures drag/marquee always cleanly finalizes
   useEffect(() => {
     const handleGlobalMouseUp = () => {
-      if (dragState || selectionBox || isPanning) {
+      if (dragState || selectionBox || isPanning || isDrawing) {
         handleMouseUp();
       }
     };
     window.addEventListener('mouseup', handleGlobalMouseUp);
     return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
-  }, [dragState, selectionBox, isPanning]);
+  }, [dragState, selectionBox, isPanning, isDrawing]);
 
   const handleStartConnect = (elementId: string, anchor: 'top' | 'right' | 'bottom' | 'left') => {
     setConnectingFrom({ id: elementId, anchor });
   };
 
-  // Convert Sticky Note to Full Synapse Document
   const handlePromoteToNote = async (stickyElement: CanvasElement) => {
     const title = stickyElement.content.text?.split('\n')[0]?.slice(0, 30) || 'Promoted Note';
     const note = await createNote({
@@ -790,7 +925,6 @@ export const WhiteboardCanvas: React.FC<{
     persistChanges(updatedElements);
   };
 
-  // AI Auto-Expand Mindmap Node
   const handleAIExpandNode = async (nodeElement: CanvasElement) => {
     try {
       const prompt = nodeElement.content.text || 'Core Concept';
@@ -922,6 +1056,18 @@ export const WhiteboardCanvas: React.FC<{
     }
   };
 
+  const handleInsertTemplate = (
+    tplElements: CanvasElement[],
+    tplConnections: CanvasConnection[]
+  ) => {
+    const updatedElements = [...elements, ...tplElements];
+    const updatedConnections = [...connections, ...tplConnections];
+    setElements(updatedElements);
+    setConnections(updatedConnections);
+    pushHistory(updatedElements, updatedConnections);
+    persistChanges(updatedElements, updatedConnections);
+  };
+
   return (
     <div
       ref={containerRef}
@@ -936,7 +1082,11 @@ export const WhiteboardCanvas: React.FC<{
       className={`w-full h-full relative overflow-hidden bg-[#0e0f14] select-none ${
         activeTool === 'hand' || isPanning
           ? 'cursor-grab active:cursor-grabbing'
-          : 'cursor-crosshair'
+          : activeTool === 'pen' || activeTool === 'highlighter'
+          ? 'cursor-crosshair'
+          : activeTool === 'eraser'
+          ? 'cursor-not-allowed'
+          : 'cursor-default'
       }`}
     >
       {/* Interactive Radar Minimap */}
@@ -979,14 +1129,15 @@ export const WhiteboardCanvas: React.FC<{
           transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
         }}
       >
-        {/* SVG Connector Lines */}
-        <svg className="absolute top-0 left-0 w-[8000px] h-[8000px] pointer-events-none z-0">
+        {/* SVG Layer: Connections & Freehand Drawings */}
+        <svg className="absolute top-0 left-0 w-[8000px] h-[8000px] pointer-events-none z-10">
           <defs>
             <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
               <polygon points="0 0, 8 3, 0 6" fill="#818cf8" />
             </marker>
           </defs>
 
+          {/* SVG Connector Lines */}
           {connections.map((conn) => {
             const fromEl = elements.find((e) => e.id === conn.from_element_id);
             const toEl = elements.find((e) => e.id === conn.to_element_id);
@@ -1034,6 +1185,45 @@ export const WhiteboardCanvas: React.FC<{
                 />
               );
             })()}
+
+          {/* Saved Drawing Strokes */}
+          {elements
+            .filter((el) => el.type === 'drawing' && el.content.points)
+            .map((el) => {
+              const pathD = getSvgPathFromPoints(el.content.points || [], el.x, el.y);
+              const isSelected = selectedIds.has(el.id);
+              const isHighlighter = el.content.tool_type === 'highlighter';
+
+              return (
+                <path
+                  key={el.id}
+                  d={pathD}
+                  fill="none"
+                  stroke={el.content.stroke_color || '#818cf8'}
+                  strokeWidth={el.content.stroke_width || 3}
+                  strokeOpacity={isHighlighter ? 0.45 : 1.0}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className={`pointer-events-none transition-all ${
+                    isSelected ? 'filter drop-shadow-[0_0_8px_rgba(129,140,248,0.8)]' : ''
+                  }`}
+                />
+              );
+            })}
+
+          {/* Real-Time Drawing In-Progress Preview */}
+          {isDrawing && currentDrawingPoints.length > 1 && (
+            <path
+              d={getSvgPathFromPoints(currentDrawingPoints)}
+              fill="none"
+              stroke={drawingColor}
+              strokeWidth={activeTool === 'highlighter' ? drawingWidth * 3.5 : drawingWidth}
+              strokeOpacity={activeTool === 'highlighter' ? 0.45 : 1.0}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="pointer-events-none"
+            />
+          )}
         </svg>
 
         {/* Marquee Drag Selection Box (Figma Style) */}
@@ -1049,7 +1239,7 @@ export const WhiteboardCanvas: React.FC<{
           />
         )}
 
-        {/* Spatial Elements */}
+        {/* Spatial Elements DOM Layer */}
         {elements.map((el) => {
           const isSelected = selectedIds.has(el.id);
 
@@ -1059,6 +1249,10 @@ export const WhiteboardCanvas: React.FC<{
               onMouseDown={(e) => handleElementMouseDown(e, el)}
               onClick={(e) => {
                 e.stopPropagation();
+                if (activeTool === 'eraser') {
+                  handleDeleteElement(el.id);
+                  return;
+                }
                 if (!e.shiftKey && !e.ctrlKey && !e.metaKey) {
                   setSelectedIds(new Set([el.id]));
                 }
@@ -1083,6 +1277,51 @@ export const WhiteboardCanvas: React.FC<{
                 />
               )}
 
+              {el.type === 'stamp' && (
+                <StampElement
+                  element={el}
+                  isSelected={isSelected}
+                  onUpdate={(updates) => handleUpdateElement(el.id, updates)}
+                  onDelete={() => handleDeleteElement(el.id)}
+                />
+              )}
+
+              {el.type === 'text' && (
+                <TextElement
+                  element={el}
+                  isSelected={isSelected}
+                  onUpdate={(updates) => handleUpdateElement(el.id, updates)}
+                  onDelete={() => handleDeleteElement(el.id)}
+                />
+              )}
+
+              {el.type === 'shape' && (
+                <ShapeElement
+                  element={el}
+                  isSelected={isSelected}
+                  onUpdate={(updates) => handleUpdateElement(el.id, updates)}
+                  onStartConnect={(anchor) => handleStartConnect(el.id, anchor)}
+                />
+              )}
+
+              {el.type === 'frame' && (
+                <FrameElement
+                  element={el}
+                  isSelected={isSelected}
+                  onUpdate={(updates) => handleUpdateElement(el.id, updates)}
+                  onDelete={() => handleDeleteElement(el.id)}
+                />
+              )}
+
+              {el.type === 'drawing' && (
+                <div
+                  className={`w-full h-full cursor-move rounded border border-transparent transition-all ${
+                    isSelected ? 'border-indigo-400/60 bg-indigo-500/5' : 'hover:border-white/20'
+                  }`}
+                  title="Drawing stroke (click to select/move)"
+                />
+              )}
+
               {el.type === 'note_card' && (
                 <NoteCardElement
                   element={el}
@@ -1104,24 +1343,6 @@ export const WhiteboardCanvas: React.FC<{
                   onStartConnect={(anchor) => handleStartConnect(el.id, anchor)}
                 />
               )}
-
-              {el.type === 'shape' && (
-                <ShapeElement
-                  element={el}
-                  isSelected={isSelected}
-                  onUpdate={(updates) => handleUpdateElement(el.id, updates)}
-                  onStartConnect={(anchor) => handleStartConnect(el.id, anchor)}
-                />
-              )}
-
-              {el.type === 'frame' && (
-                <FrameElement
-                  element={el}
-                  isSelected={isSelected}
-                  onUpdate={(updates) => handleUpdateElement(el.id, updates)}
-                  onDelete={() => handleDeleteElement(el.id)}
-                />
-              )}
             </div>
           );
         })}
@@ -1129,9 +1350,9 @@ export const WhiteboardCanvas: React.FC<{
 
       {/* Floating Multi-Selection Action Pill */}
       {selectedIds.size > 0 && (
-        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-[#181922]/95 backdrop-blur-xl border border-border/80 shadow-2xl animate-in fade-in slide-in-from-bottom-2 duration-150 select-none">
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-[#181922]/95 backdrop-blur-xl border border-border/80 shadow-2xl animate-in fade-in slide-in-from-bottom-2 duration-150 select-none">
           <span className="text-xs font-semibold text-foreground px-1">
-            {selectedIds.size} {selectedIds.size === 1 ? 'node' : 'nodes'} selected
+            {selectedIds.size} {selectedIds.size === 1 ? 'item' : 'items'} selected
           </span>
           <div className="w-px h-3.5 bg-border/60 mx-0.5" />
           <button
@@ -1175,6 +1396,14 @@ export const WhiteboardCanvas: React.FC<{
         onUndo={handleUndo}
         onRedo={handleRedo}
         onTidyUp={handleTidyUp}
+        onOpenTemplates={() => setTemplateModalOpen(true)}
+        drawingColor={drawingColor}
+        setDrawingColor={setDrawingColor}
+        drawingWidth={drawingWidth}
+        setDrawingWidth={setDrawingWidth}
+        activeStamp={activeStamp}
+        setActiveStamp={setActiveStamp}
+        mode={mode}
         onZoomIn={() => {
           const newZ = Math.min(viewport.zoom * 1.15, 3.0);
           setViewport((prev) => ({ ...prev, zoom: newZ }));
@@ -1195,6 +1424,13 @@ export const WhiteboardCanvas: React.FC<{
         }}
         onExport={handleExport}
         onClear={handleClear}
+      />
+
+      {/* 1-Click FigJam Template Modal */}
+      <FigJamTemplateModal
+        isOpen={templateModalOpen}
+        onClose={() => setTemplateModalOpen(false)}
+        onInsert={handleInsertTemplate}
       />
     </div>
   );
