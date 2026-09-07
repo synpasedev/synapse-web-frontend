@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useWhiteboards, useWhiteboard, useCreateWhiteboard } from '@/hooks/use-whiteboard';
 import { WhiteboardCanvas } from '@/components/canvas/WhiteboardCanvas';
+import { FigJamTimer } from '@/components/canvas/FigJamTimer';
 import { Loader2, Plus, ArrowLeft, LayoutGrid } from 'lucide-react';
 
 export default function IndividualCanvasPage({
@@ -22,8 +23,9 @@ export default function IndividualCanvasPage({
     const nextNum = (allBoards?.length || 0) + 1;
     const newBoard = await createWhiteboard({
       workspaceId,
-      title: `Canvas Board #${nextNum}`,
+      title: `Whiteboard Canvas #${nextNum}`,
       icon: '🎨',
+      board_type: 'canvas',
     });
     router.push(`/${workspaceId}/canvas/${newBoard.id}`);
   };
@@ -56,7 +58,7 @@ export default function IndividualCanvasPage({
           <div className="flex items-center gap-2">
             <span className="text-lg">{whiteboard?.icon || '🎨'}</span>
             <span className="text-xs font-bold text-foreground tracking-tight max-w-[180px] sm:max-w-xs truncate">
-              {whiteboard?.title || 'Canvas Board'}
+              {whiteboard?.title || 'Whiteboard Canvas'}
             </span>
           </div>
 
@@ -81,6 +83,8 @@ export default function IndividualCanvasPage({
         </div>
 
         <div className="flex items-center gap-2">
+          <FigJamTimer />
+
           <button
             type="button"
             onClick={handleCreateNewBoard}
