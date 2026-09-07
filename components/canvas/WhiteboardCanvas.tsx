@@ -45,6 +45,89 @@ function getSvgPathFromPoints(
   return d;
 }
 
+export function getNodeAutoDimensions(el: CanvasElement): {
+  width: number;
+  height: number;
+  minW: number;
+  minH: number;
+} {
+  let minW = 160;
+  let minH = 60;
+
+  if (el.type === 'mindmap_node') {
+    minW = 180;
+    minH = 48;
+    const text = el.content?.text || '';
+    const charW = 8;
+    const padding = 76; // padding + AI button + anchor spacing
+    const autoW = Math.ceil(text.length * charW + padding);
+    const width = Math.max(minW, Math.max(el.width || 0, autoW));
+    return { width, height: minH, minW, minH };
+  }
+
+  if (el.type === 'shape') {
+    const shape = el.content?.shape_type || 'rectangle';
+    minW = shape === 'pill' ? 180 : 160;
+    minH = shape === 'circle' || shape === 'diamond' ? 140 : 64;
+    const text = el.content?.text || '';
+    const charW = 8.5;
+    const padding = 54;
+    const autoW = Math.ceil(text.length * charW + padding);
+    const width = Math.max(minW, Math.max(el.width || 0, autoW));
+    const height = Math.max(minH, el.height || minH);
+    return { width, height, minW, minH };
+  }
+
+  if (el.type === 'text') {
+    minW = 120;
+    minH = 36;
+    const text = el.content?.text || '';
+    const fontSize = el.content?.font_size || 16;
+    const lines = text.split('\n');
+    const maxLineLen = Math.max(...lines.map((l) => l.length), 0);
+    const charW = fontSize * 0.62;
+    const lineH = fontSize * 1.35;
+    const autoW = Math.ceil(maxLineLen * charW + 28);
+    const autoH = Math.ceil(lines.length * lineH + 16);
+    const width = Math.max(minW, Math.max(el.width || 0, autoW));
+    const height = Math.max(minH, Math.max(el.height || 0, autoH));
+    return { width, height, minW, minH };
+  }
+
+  if (el.type === 'sticky') {
+    minW = 210;
+    minH = 180;
+    const text = el.content?.text || '';
+    const lines = text.split('\n');
+    let totalLines = 0;
+    lines.forEach((line) => {
+      totalLines += Math.max(1, Math.ceil(line.length / 26));
+    });
+    const autoH = Math.ceil(80 + totalLines * 18);
+    const width = Math.max(minW, el.width || minW);
+    const height = Math.max(minH, Math.max(el.height || 0, autoH));
+    return { width, height, minW, minH };
+  }
+
+  if (el.type === 'note_card') {
+    minW = 240;
+    minH = 140;
+    const text = el.content?.text || '';
+    const totalLines = Math.max(1, Math.ceil(text.length / 32));
+    const autoH = Math.ceil(70 + totalLines * 18 + 24);
+    const width = Math.max(minW, el.width || minW);
+    const height = Math.max(minH, Math.max(el.height || 0, autoH));
+    return { width, height, minW, minH };
+  }
+
+  return {
+    width: Math.max(el.width || 100, 40),
+    height: Math.max(el.height || 60, 40),
+    minW: 40,
+    minH: 40,
+  };
+}
+
 export const WhiteboardCanvas: React.FC<{
   whiteboard: Whiteboard;
   workspaceId: string;
@@ -1043,13 +1126,26 @@ export const WhiteboardCanvas: React.FC<{
         const childId = `el-${crypto.randomUUID().slice(0, 8)}`;
         const yOffset = (i - 1) * 70;
 
+        const autoDims = getNodeAutoDimensions({
+          id: childId,
+          type: 'mindmap_node',
+          x: 0,
+          y: 0,
+          width: 180,
+          height: 48,
+          content: { text, color: '#34d399', bg_color: '#064e3b' },
+          z_index: 0,
+          created_at: now,
+          updated_at: now,
+        });
+
         newChildElements.push({
           id: childId,
           type: 'mindmap_node',
-          x: nodeElement.x + nodeElement.width + 100,
+          x: nodeElement.x + (nodeElement.width || 180) + 100,
           y: nodeElement.y + yOffset,
-          width: 170,
-          height: 48,
+          width: autoDims.width,
+          height: autoDims.height,
           content: { text, color: '#34d399', bg_color: '#064e3b' },
           parent_id: nodeElement.id,
           z_index: elements.length + i + 1,
@@ -1106,7 +1202,18 @@ export const WhiteboardCanvas: React.FC<{
   };
 
   const handleUpdateElement = (id: string, updates: Partial<CanvasElement>) => {
-    const updated = elements.map((el) => (el.id === id ? { ...el, ...updates } : el));
+    const updated = elements.map((el) => {
+      if (el.id === id) {
+        const merged = { ...el, ...updates };
+        const autoDims = getNodeAutoDimensions(merged);
+        return {
+          ...merged,
+          width: autoDims.width,
+          height: autoDims.height,
+        };
+      }
+      return el;
+    });
     setElements(updated);
     persistChanges(updated);
   };
@@ -1240,10 +1347,17 @@ export const WhiteboardCanvas: React.FC<{
             const toEl = elements.find((e) => e.id === conn.to_element_id);
             if (!fromEl || !toEl) return null;
 
-            const x1 = fromEl.x + fromEl.width;
-            const y1 = fromEl.y + fromEl.height / 2;
+            const fromDims = getNodeAutoDimensions(fromEl);
+            const toDims = getNodeAutoDimensions(toEl);
+
+            const fromW = Math.max(fromEl.width || 0, fromDims.width);
+            const fromH = Math.max(fromEl.height || 0, fromDims.height);
+            const toH = Math.max(toEl.height || 0, toDims.height);
+
+            const x1 = fromEl.x + fromW;
+            const y1 = fromEl.y + fromH / 2;
             const x2 = toEl.x;
-            const y2 = toEl.y + toEl.height / 2;
+            const y2 = toEl.y + toH / 2;
 
             const dx = Math.max(Math.abs(x2 - x1) * 0.5, 40);
             const pathD = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
@@ -1340,6 +1454,9 @@ export const WhiteboardCanvas: React.FC<{
         {elements.map((el) => {
           const isSelected = selectedIds.has(el.id);
           const isPanMode = activeTool === 'hand' || isSpacePressed;
+          const autoDims = getNodeAutoDimensions(el);
+          const renderWidth = Math.max(el.width || 0, autoDims.width);
+          const renderHeight = Math.max(el.height || 0, autoDims.height);
 
           return (
             <div
@@ -1362,8 +1479,10 @@ export const WhiteboardCanvas: React.FC<{
               style={{
                 left: `${el.x}px`,
                 top: `${el.y}px`,
-                width: `${el.width}px`,
-                height: `${el.height}px`,
+                width: `${renderWidth}px`,
+                height: `${renderHeight}px`,
+                minWidth: `${autoDims.minW}px`,
+                minHeight: `${autoDims.minH}px`,
                 zIndex: el.type === 'frame' ? 0 : el.z_index,
               }}
             >
