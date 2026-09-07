@@ -51,7 +51,7 @@ export default function CanvasGalleryPage({
   };
 
   return (
-    <div className="w-full max-w-5xl mx-auto px-6 py-10 text-foreground">
+    <div className="w-full max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-10 pt-16 sm:pt-10 text-foreground">
       {/* Soothing Welcome Banner */}
       <div className="relative overflow-hidden rounded-3xl p-8 mb-9 border border-border/60 bg-gradient-to-br from-card/90 via-card/50 to-background/50 shadow-sm">
         <div className="relative z-10 max-w-2xl">

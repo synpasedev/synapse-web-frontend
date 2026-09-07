@@ -24,7 +24,7 @@ export default function GraphPage({
   }
 
   return (
-    <div className="w-full h-full p-6 flex flex-col">
+    <div className="w-full h-full p-4 sm:p-6 pt-16 sm:pt-6 flex flex-col">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">

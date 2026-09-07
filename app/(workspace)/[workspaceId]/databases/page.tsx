@@ -28,7 +28,7 @@ export default function DatabasesPage({
   const defaultDb = databases?.[0];
 
   return (
-    <div className="w-full max-w-6xl mx-auto px-6 py-10">
+    <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10 pt-16 sm:pt-10">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div className="flex items-center gap-3">
@@ -53,12 +53,14 @@ export default function DatabasesPage({
         {/* Controls: Google Sheet Sync + Share + View Switcher */}
         <div className="flex flex-wrap items-center gap-3 self-start sm:self-auto">
           {defaultDb && (
-            <>
-              <GoogleSheetSyncBadge
-                database={defaultDb}
-                workspaceId={workspaceId}
-                onRefreshDatabase={() => refetch()}
-              />
+                      <>
+              <div className="hidden md:block">
+                <GoogleSheetSyncBadge
+                  database={defaultDb}
+                  workspaceId={workspaceId}
+                  onRefreshDatabase={() => refetch()}
+                />
+              </div>
 
               <ShareButton
                 resourceType="database"
@@ -81,7 +83,8 @@ export default function DatabasesPage({
               }`}
             >
               <Table className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Table View</span>
+              <span className="hidden sm:inline">Table View</span>
+              <span className="sm:hidden">Table</span>
             </button>
             <button
               type="button"
@@ -93,7 +96,8 @@ export default function DatabasesPage({
               }`}
             >
               <Kanban className="w-3.5 h-3.5 text-purple-400" />
-              <span>Kanban Board</span>
+              <span className="hidden sm:inline">Kanban Board</span>
+              <span className="sm:hidden">Board</span>
             </button>
           </div>
         </div>

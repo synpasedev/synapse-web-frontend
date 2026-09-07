@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
@@ -18,7 +18,6 @@ import {
   FileText,
   Network,
   Palette,
-  Presentation,
   Database,
   LayoutTemplate,
   Plus,
@@ -26,12 +25,23 @@ import {
   Settings,
   PanelLeftClose,
   PanelLeft,
+  X,
+  Menu,
 } from 'lucide-react';
 
 export const AppSidebar: React.FC<{ workspaceId: string }> = ({ workspaceId }) => {
   const pathname = usePathname();
   const router = useRouter();
-  const { isSidebarOpen, toggleSidebar, setCommandPaletteOpen, setTemplateModalOpen, setThemeModalOpen } = useUIStore();
+  const {
+    isSidebarOpen,
+    toggleSidebar,
+    setCommandPaletteOpen,
+    setTemplateModalOpen,
+    setThemeModalOpen,
+    isMobileSidebarOpen,
+    setMobileSidebarOpen,
+    toggleMobileSidebar,
+  } = useUIStore();
   const { data: workspace } = useWorkspace(workspaceId);
   const { data: notes } = useNotes(workspaceId);
   const { mutateAsync: createNote } = useCreateNote();
@@ -47,10 +57,13 @@ export const AppSidebar: React.FC<{ workspaceId: string }> = ({ workspaceId }) =
   });
 
   useEffect(() => {
-    return syncEngine.subscribe((state) => {
-      setSyncState(state);
-    });
+    return syncEngine.subscribe((state) => setSyncState(state));
   }, []);
+
+  // Close mobile drawer when route changes
+  useEffect(() => {
+    setMobileSidebarOpen(false);
+  }, [pathname]);
 
   const handleCreateNewNote = async () => {
     const existingUntitled = (notes || []).filter(
@@ -58,12 +71,7 @@ export const AppSidebar: React.FC<{ workspaceId: string }> = ({ workspaceId }) =
     );
     const nextNum = existingUntitled.length + 1;
     const title = existingUntitled.length === 0 ? 'Untitled Note' : `Untitled Note ${nextNum}`;
-
-    const note = await createNote({
-      workspaceId,
-      title,
-      icon: '📄',
-    });
+    const note = await createNote({ workspaceId, title, icon: '📄' });
     router.push(`/${workspaceId}/notes/${note.id}`);
   };
 
@@ -71,62 +79,56 @@ export const AppSidebar: React.FC<{ workspaceId: string }> = ({ workspaceId }) =
     const existingBoards = whiteboards || [];
     const nextNum = existingBoards.length + 1;
     const title = `Whiteboard Canvas #${nextNum}`;
-    const newBoard = await createWhiteboard({
-      workspaceId,
-      title,
-      icon: '🎨',
-      board_type: 'canvas',
-    });
+    const newBoard = await createWhiteboard({ workspaceId, title, icon: '🎨', board_type: 'canvas' });
     router.push(`/${workspaceId}/canvas/${newBoard.id}`);
   };
 
   const favoriteNotes = notes?.filter((n) => n.is_favorite) || [];
   const regularNotes = notes || [];
 
-  if (!isSidebarOpen) {
-    return (
-      <div className="fixed top-4 left-4 z-40">
-        <button
-          type="button"
-          onClick={toggleSidebar}
-          className="p-2 rounded-xl bg-card/80 backdrop-blur-md border border-border/60 text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors cursor-pointer shadow-sm"
-          title="Open Sidebar"
-        >
-          <PanelLeft className="w-4 h-4" />
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <aside className="w-60 h-screen bg-sidebar/95 backdrop-blur-xl border-r border-sidebar-border/50 flex flex-col shrink-0 select-none z-30 transition-all">
+  // ─── The inner sidebar content (shared between desktop & mobile drawer) ───
+  const SidebarContent = ({ onClose }: { onClose?: () => void }) => (
+    <div className="flex flex-col h-full">
       {/* Workspace Header */}
-      <div className="p-3 border-b border-border/40 flex items-center justify-between gap-2">
+      <div className="p-3 border-b border-border/40 flex items-center justify-between gap-2 shrink-0">
         <div className="flex-1 min-w-0">
           <WorkspaceSwitcher workspace={workspace || null} />
         </div>
-        <button
-          type="button"
-          onClick={toggleSidebar}
-          className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors cursor-pointer"
-          title="Collapse Sidebar"
-        >
-          <PanelLeftClose className="w-3.5 h-3.5" />
-        </button>
+        {/* Desktop collapse btn */}
+        {!onClose && (
+          <button
+            type="button"
+            onClick={toggleSidebar}
+            className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors cursor-pointer hidden lg:flex"
+            title="Collapse Sidebar"
+          >
+            <PanelLeftClose className="w-3.5 h-3.5" />
+          </button>
+        )}
+        {/* Mobile close btn */}
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
       {/* Primary Actions */}
-      <div className="p-2.5 space-y-1.5">
+      <div className="p-2.5 space-y-1.5 shrink-0">
         <button
           type="button"
           onClick={() => setCommandPaletteOpen(true)}
-          className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground bg-secondary/50 hover:bg-secondary/80 border border-border/40 transition-colors cursor-pointer"
+          className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground bg-secondary/50 hover:bg-secondary/80 border border-border/40 transition-colors cursor-pointer"
         >
           <div className="flex items-center gap-2">
             <Search className="w-3.5 h-3.5 text-indigo-300" />
             <span>Search / Jump</span>
           </div>
-          <kbd className="text-[10px] font-mono bg-card px-1 py-0.5 rounded text-muted-foreground/70 border border-border/50">
+          <kbd className="text-[10px] font-mono bg-card px-1 py-0.5 rounded text-muted-foreground/70 border border-border/50 hidden sm:inline">
             Ctrl+K
           </kbd>
         </button>
@@ -134,7 +136,7 @@ export const AppSidebar: React.FC<{ workspaceId: string }> = ({ workspaceId }) =
         <button
           type="button"
           onClick={handleCreateNewNote}
-          className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-primary-foreground bg-primary hover:bg-primary/90 transition-all cursor-pointer shadow-xs"
+          className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-semibold text-primary-foreground bg-primary hover:bg-primary/90 transition-all cursor-pointer shadow-xs"
         >
           <Plus className="w-3.5 h-3.5" />
           <span>New Note</span>
@@ -142,67 +144,67 @@ export const AppSidebar: React.FC<{ workspaceId: string }> = ({ workspaceId }) =
       </div>
 
       {/* Navigation Links */}
-      <div className="px-2 py-1 space-y-0.5 text-xs">
+      <div className="px-2 py-1 space-y-0.5 text-xs shrink-0">
         <Link
           href={`/${workspaceId}/notes`}
-          className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg font-medium transition-colors ${
+          className={`flex items-center gap-2 px-2.5 py-2 rounded-lg font-medium transition-colors ${
             pathname === `/${workspaceId}/notes`
               ? 'bg-indigo-500/10 text-indigo-300 font-semibold'
               : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
           }`}
         >
-          <FileText className="w-3.5 h-3.5 text-indigo-300" />
+          <FileText className="w-3.5 h-3.5 text-indigo-300 shrink-0" />
           <span>All Notes</span>
         </Link>
 
         <Link
           href={`/${workspaceId}/graph`}
-          className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg font-medium transition-colors ${
+          className={`flex items-center gap-2 px-2.5 py-2 rounded-lg font-medium transition-colors ${
             pathname === `/${workspaceId}/graph`
               ? 'bg-indigo-500/10 text-indigo-300 font-semibold'
               : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
           }`}
         >
-          <Network className="w-3.5 h-3.5 text-purple-300" />
+          <Network className="w-3.5 h-3.5 text-purple-300 shrink-0" />
           <span>Knowledge Graph</span>
         </Link>
 
         <Link
           href={`/${workspaceId}/canvas`}
-          className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg font-medium transition-colors ${
+          className={`flex items-center gap-2 px-2.5 py-2 rounded-lg font-medium transition-colors ${
             pathname.startsWith(`/${workspaceId}/canvas`) || pathname.startsWith(`/${workspaceId}/whiteboards`)
               ? 'bg-indigo-500/15 text-indigo-300 font-semibold border border-indigo-500/20'
               : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
           }`}
         >
-          <Palette className="w-3.5 h-3.5 text-pink-400" />
+          <Palette className="w-3.5 h-3.5 text-pink-400 shrink-0" />
           <span>Whiteboard & Canvas</span>
         </Link>
 
         <Link
           href={`/${workspaceId}/databases`}
-          className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg font-medium transition-colors ${
+          className={`flex items-center gap-2 px-2.5 py-2 rounded-lg font-medium transition-colors ${
             pathname === `/${workspaceId}/databases`
               ? 'bg-indigo-500/10 text-indigo-300 font-semibold'
               : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
           }`}
         >
-          <Database className="w-3.5 h-3.5 text-emerald-300" />
+          <Database className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
           <span>Databases & Sprint</span>
         </Link>
 
         <button
           type="button"
           onClick={() => setTemplateModalOpen(true)}
-          className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors text-left cursor-pointer"
+          className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors text-left cursor-pointer"
         >
-          <LayoutTemplate className="w-3.5 h-3.5 text-amber-300/80" />
+          <LayoutTemplate className="w-3.5 h-3.5 text-amber-300/80 shrink-0" />
           <span>Templates</span>
         </button>
       </div>
 
-      {/* Sidebar Collections: Notes, Whiteboards & Canvases, Databases */}
-      <div className="flex-1 overflow-y-auto py-2.5 space-y-3.5">
+      {/* Scrollable collections */}
+      <div className="flex-1 overflow-y-auto py-2.5 space-y-3.5 min-h-0">
         {favoriteNotes.length > 0 && (
           <div>
             <div className="px-3.5 mb-1 text-[10px] font-medium tracking-wider text-muted-foreground/70 uppercase">
@@ -231,7 +233,7 @@ export const AppSidebar: React.FC<{ workspaceId: string }> = ({ workspaceId }) =
           <NoteTree notes={regularNotes} workspaceId={workspaceId} />
         </div>
 
-        {/* Unified Whiteboards & Canvases Section */}
+        {/* Unified Whiteboards & Canvases */}
         <div>
           <div className="px-3.5 mb-1 flex items-center justify-between text-[10px] font-medium tracking-wider text-muted-foreground/70 uppercase">
             <span>Whiteboards & Canvas</span>
@@ -255,7 +257,7 @@ export const AppSidebar: React.FC<{ workspaceId: string }> = ({ workspaceId }) =
           />
         </div>
 
-        {/* Databases Section */}
+        {/* Databases */}
         <div>
           <div className="px-3.5 mb-1 flex items-center justify-between text-[10px] font-medium tracking-wider text-muted-foreground/70 uppercase">
             <span>Databases</span>
@@ -268,7 +270,7 @@ export const AppSidebar: React.FC<{ workspaceId: string }> = ({ workspaceId }) =
                 <Link
                   key={db.id}
                   href={`/${workspaceId}/databases`}
-                  className={`group flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  className={`group flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-all ${
                     isActive
                       ? 'bg-emerald-500/15 text-emerald-300 font-semibold border border-emerald-500/20'
                       : 'text-foreground/80 hover:bg-secondary/60 hover:text-foreground border border-transparent'
@@ -285,47 +287,103 @@ export const AppSidebar: React.FC<{ workspaceId: string }> = ({ workspaceId }) =
         </div>
       </div>
 
-      <div className="px-2.5 pb-2"><UserProfile /></div>
-      {/* Sync Status Footer */}
-      <div className="p-2.5 border-t border-border/40 bg-secondary/15 flex items-center justify-between text-xs text-muted-foreground">
-        <div className="flex items-center gap-1.5 min-h-[20px]">
-          <span
-            className={`w-1.5 h-1.5 rounded-full transition-colors duration-300 ${
-              syncState.isSyncing
-                ? 'bg-sky-400 animate-pulse'
-                : syncState.isOnline
-                ? 'bg-emerald-400'
-                : 'bg-amber-400'
-            }`}
-          />
-          <span className="text-[11px] font-medium text-muted-foreground/80 transition-all duration-300">
-            {syncState.isSyncing
-              ? 'Syncing...'
-              : syncState.isOnline
-              ? 'Local Engine Active'
-              : 'Offline Mode'}
-          </span>
+      {/* Footer */}
+      <div className="shrink-0">
+        <div className="px-2.5 pb-2">
+          <UserProfile />
         </div>
+        <div className="p-2.5 border-t border-border/40 bg-secondary/15 flex items-center justify-between text-xs text-muted-foreground">
+          <div className="flex items-center gap-1.5 min-h-[20px]">
+            <span
+              className={`w-1.5 h-1.5 rounded-full transition-colors duration-300 ${
+                syncState.isSyncing
+                  ? 'bg-sky-400 animate-pulse'
+                  : syncState.isOnline
+                  ? 'bg-emerald-400'
+                  : 'bg-amber-400'
+              }`}
+            />
+            <span className="text-[11px] font-medium text-muted-foreground/80 transition-all duration-300 hidden sm:inline">
+              {syncState.isSyncing ? 'Syncing...' : syncState.isOnline ? 'Local Engine Active' : 'Offline Mode'}
+            </span>
+          </div>
 
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => setThemeModalOpen(true)}
-            className="p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-            title="Themes & Appearance Studio"
-          >
-            <Palette className="w-3.5 h-3.5 text-primary" />
-          </button>
-
-          <Link
-            href={`/${workspaceId}/settings`}
-            className="p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-            title="Settings"
-          >
-            <Settings className="w-3.5 h-3.5" />
-          </Link>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setThemeModalOpen(true)}
+              className="p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              title="Themes & Appearance Studio"
+            >
+              <Palette className="w-3.5 h-3.5 text-primary" />
+            </button>
+            <Link
+              href={`/${workspaceId}/settings`}
+              className="p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+              title="Settings"
+            >
+              <Settings className="w-3.5 h-3.5" />
+            </Link>
+          </div>
         </div>
       </div>
-    </aside>
+    </div>
+  );
+
+  return (
+    <>
+      {/* ─── MOBILE: Hamburger trigger button (shown when drawer is closed) ─── */}
+      <button
+        type="button"
+        onClick={toggleMobileSidebar}
+        className="fixed top-3 left-3 z-50 p-2.5 rounded-xl bg-card/90 backdrop-blur-md border border-border/60 text-muted-foreground hover:text-foreground transition-colors cursor-pointer shadow-md lg:hidden"
+        aria-label="Open menu"
+      >
+        <Menu className="w-4 h-4" />
+      </button>
+
+      {/* ─── MOBILE: Overlay backdrop ─── */}
+      {isMobileSidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden animate-in fade-in duration-200"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      )}
+
+      {/* ─── MOBILE: Drawer sidebar ─── */}
+      <aside
+        className={`
+          fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw]
+          bg-sidebar/98 backdrop-blur-xl border-r border-sidebar-border/50
+          flex flex-col shrink-0 select-none
+          transition-transform duration-300 ease-in-out
+          lg:hidden
+          ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+        `}
+      >
+        <SidebarContent onClose={() => setMobileSidebarOpen(false)} />
+      </aside>
+
+      {/* ─── DESKTOP: Collapsed toggle button ─── */}
+      {!isSidebarOpen && (
+        <div className="fixed top-4 left-4 z-40 hidden lg:block">
+          <button
+            type="button"
+            onClick={toggleSidebar}
+            className="p-2 rounded-xl bg-card/80 backdrop-blur-md border border-border/60 text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors cursor-pointer shadow-sm"
+            title="Open Sidebar"
+          >
+            <PanelLeft className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* ─── DESKTOP: Persistent sidebar ─── */}
+      {isSidebarOpen && (
+        <aside className="hidden lg:flex w-60 h-screen bg-sidebar/95 backdrop-blur-xl border-r border-sidebar-border/50 flex-col shrink-0 select-none z-30 transition-all">
+          <SidebarContent />
+        </aside>
+      )}
+    </>
   );
 };

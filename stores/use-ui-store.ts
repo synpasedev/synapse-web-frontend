@@ -4,6 +4,10 @@ interface UIState {
   isSidebarOpen: boolean;
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
+  // Mobile-specific: the drawer overlay (independent of desktop sidebar state)
+  isMobileSidebarOpen: boolean;
+  setMobileSidebarOpen: (open: boolean) => void;
+  toggleMobileSidebar: () => void;
   isCommandPaletteOpen: boolean;
   setCommandPaletteOpen: (open: boolean) => void;
   isTemplateModalOpen: boolean;
@@ -26,6 +30,9 @@ export const useUIStore = create<UIState>((set) => ({
   isSidebarOpen: true,
   toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
   setSidebarOpen: (open) => set({ isSidebarOpen: open }),
+  isMobileSidebarOpen: false,
+  setMobileSidebarOpen: (open) => set({ isMobileSidebarOpen: open }),
+  toggleMobileSidebar: () => set((state) => ({ isMobileSidebarOpen: !state.isMobileSidebarOpen })),
   isCommandPaletteOpen: false,
   setCommandPaletteOpen: (open) => set({ isCommandPaletteOpen: open }),
   isTemplateModalOpen: false,
@@ -43,4 +50,3 @@ export const useUIStore = create<UIState>((set) => ({
   isWorkspaceSettingsOpen: false,
   setWorkspaceSettingsOpen: (open) => set({ isWorkspaceSettingsOpen: open }),
 }));
-

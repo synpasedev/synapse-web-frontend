@@ -15,7 +15,7 @@ export default function TemplatesPage({
   const { setTemplateModalOpen } = useUIStore();
 
   return (
-    <div className="w-full max-w-5xl mx-auto px-6 py-10">
+    <div className="w-full max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-10 pt-16 sm:pt-10">
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shadow-sm">

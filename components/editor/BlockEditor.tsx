@@ -228,10 +228,10 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
   }, [editor?.getText()]);
 
   return (
-    <div className="w-full max-w-3xl mx-auto px-8 py-10">
+    <div className="w-full max-w-3xl mx-auto px-4 sm:px-8 py-6 sm:py-10 pt-14 sm:pt-10">
       {/* Note Header */}
       <div className="mb-6 group">
-        <div className="flex items-center justify-between gap-4 mb-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -250,24 +250,26 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
                 <Clock className="w-3 h-3" />
                 {new Date(note.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </span>
-              <span>•</span>
-              <span className="flex items-center gap-1">
+              <span className="hidden sm:inline">•</span>
+              <span className="hidden sm:flex items-center gap-1">
                 <Layers className="w-3 h-3" />
                 {wordCount} words
               </span>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <GoogleDocSyncBadge
-              noteId={note.id}
-              workspaceId={note.workspace_id}
-              noteTitle={note.title}
-              link={googleSync.link}
-              isSyncing={googleSync.isSyncing}
-              onForceSync={() => googleSync.performSync(false)}
-              onRefreshLink={googleSync.refreshLink}
-            />
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <div className="hidden sm:block">
+              <GoogleDocSyncBadge
+                noteId={note.id}
+                workspaceId={note.workspace_id}
+                noteTitle={note.title}
+                link={googleSync.link}
+                isSyncing={googleSync.isSyncing}
+                onForceSync={() => googleSync.performSync(false)}
+                onRefreshLink={googleSync.refreshLink}
+              />
+            </div>
 
             <ShareButton
               resourceType="note"
@@ -279,7 +281,7 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
             <button
               type="button"
               onClick={handleToggleFavorite}
-              className={`p-1.5 rounded-lg border border-border/50 hover:bg-secondary/60 transition-colors cursor-pointer ${
+              className={`p-2 rounded-lg border border-border/50 hover:bg-secondary/60 transition-colors cursor-pointer ${
                 note.is_favorite ? 'text-amber-400/90 bg-amber-400/10' : 'text-muted-foreground/70'
               }`}
               title={note.is_favorite ? 'Favorited' : 'Add to favorites'}

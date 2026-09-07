@@ -40,8 +40,8 @@ export default function IndividualCanvasPage({
 
   return (
     <div className="w-full h-screen overflow-hidden flex flex-col relative bg-background text-foreground">
-      {/* Top Header Bar */}
-      <div className="h-12 px-4 border-b border-sidebar-border bg-sidebar/95 backdrop-blur-xl flex items-center justify-between z-30 shrink-0">
+      {/* Top Header Bar — pl-14 on mobile to clear the hamburger button */}
+      <div className="h-12 pl-14 lg:pl-4 pr-4 border-b border-sidebar-border bg-sidebar/95 backdrop-blur-xl flex items-center justify-between z-30 shrink-0">
         <div className="flex items-center gap-3">
           {/* Back to Canvas List */}
           <Link
@@ -99,7 +99,7 @@ export default function IndividualCanvasPage({
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold shadow-xs transition-all cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>New Canvas</span>
+            <span className="hidden sm:inline">New Canvas</span>
           </button>
         </div>
       </div>

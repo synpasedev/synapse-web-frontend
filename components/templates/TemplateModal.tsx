@@ -77,7 +77,7 @@ export const TemplateModal: React.FC<{ workspaceId: string }> = ({ workspaceId }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex flex-col items-end sm:items-center justify-center sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="glass-dropdown w-full max-w-2xl rounded-2xl border border-border/80 shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border/60">
