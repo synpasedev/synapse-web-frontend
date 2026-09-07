@@ -14,6 +14,12 @@ interface UIState {
   setAIPromptContext: (ctx: string) => void;
   isThemeModalOpen: boolean;
   setThemeModalOpen: (open: boolean) => void;
+  isCreateWorkspaceModalOpen: boolean;
+  setCreateWorkspaceModalOpen: (open: boolean) => void;
+  isInviteModalOpen: boolean;
+  setInviteModalOpen: (open: boolean) => void;
+  isWorkspaceSettingsOpen: boolean;
+  setWorkspaceSettingsOpen: (open: boolean) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -30,5 +36,11 @@ export const useUIStore = create<UIState>((set) => ({
   setAIPromptContext: (ctx) => set({ aiPromptContext: ctx }),
   isThemeModalOpen: false,
   setThemeModalOpen: (open) => set({ isThemeModalOpen: open }),
+  isCreateWorkspaceModalOpen: false,
+  setCreateWorkspaceModalOpen: (open) => set({ isCreateWorkspaceModalOpen: open }),
+  isInviteModalOpen: false,
+  setInviteModalOpen: (open) => set({ isInviteModalOpen: open }),
+  isWorkspaceSettingsOpen: false,
+  setWorkspaceSettingsOpen: (open) => set({ isWorkspaceSettingsOpen: open }),
 }));
 

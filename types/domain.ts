@@ -68,6 +68,34 @@ export interface Link {
   source_note?: Pick<Note, 'id' | 'title' | 'icon'>;
 }
 
+export type WorkspaceType = 'private' | 'shared';
+export type WorkspaceRole = 'owner' | 'admin' | 'editor' | 'viewer';
+
+export interface WorkspaceMember {
+  id: string;
+  workspace_id: string;
+  user_id: string;
+  name?: string;
+  email: string;
+  avatar_url?: string;
+  role: WorkspaceRole;
+  joined_at?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface WorkspaceInvite {
+  id: string;
+  workspace_id: string;
+  email?: string;
+  role: WorkspaceRole;
+  invite_code: string;
+  created_by: string;
+  created_at: string;
+  expires_at?: string;
+  status?: 'pending' | 'accepted' | 'revoked';
+}
+
 export interface Workspace {
   id: string;
   name: string;
@@ -76,7 +104,9 @@ export interface Workspace {
   owner_id: string;
   created_at: string;
   updated_at: string;
-  role?: 'owner' | 'admin' | 'editor' | 'viewer';
+  type?: WorkspaceType;
+  role?: WorkspaceRole;
+  members_count?: number;
 }
 
 export interface Template {

@@ -7,7 +7,28 @@ export async function ensureSeedData() {
   if (typeof window === 'undefined') return;
 
   const count = await localDb.workspaces.count();
-  if (count > 0) return; // Already seeded
+  if (count > 0) {
+    // Migration: ensure existing workspaces have type and default member
+    const workspaces = await localDb.workspaces.toArray();
+    for (const ws of workspaces) {
+      if (!ws.type) {
+        await localDb.workspaces.update(ws.id, { type: 'private', role: 'owner' });
+      }
+      const member = await localDb.workspace_members.where('workspace_id').equals(ws.id).first();
+      if (!member) {
+        await localDb.workspace_members.put({
+          id: `mem-${ws.id}-owner`,
+          workspace_id: ws.id,
+          user_id: ws.owner_id || 'local-user-1',
+          role: 'owner',
+          email: 'user@synapse.local',
+          created_at: ws.created_at || new Date().toISOString(),
+          updated_at: ws.updated_at || new Date().toISOString(),
+        });
+      }
+    }
+    return; // Already seeded
+  }
 
   const now = new Date().toISOString();
   const userId = 'local-user-1';
@@ -21,7 +42,18 @@ export async function ensureSeedData() {
     owner_id: userId,
     created_at: now,
     updated_at: now,
+    type: 'private',
     role: 'owner',
+  };
+
+  const defaultMember: import('@/types/domain').WorkspaceMember = {
+    id: `mem-${DEFAULT_WORKSPACE_ID}-owner`,
+    workspace_id: DEFAULT_WORKSPACE_ID,
+    user_id: userId,
+    role: 'owner',
+    email: 'user@synapse.local',
+    created_at: now,
+    updated_at: now,
   };
 
   // 2. Default Notes (Interconnected for the Graph View)
@@ -664,8 +696,9 @@ export async function ensureSeedData() {
     updated_at: now,
   };
 
-  await localDb.transaction('rw', [localDb.workspaces, localDb.notes, localDb.blocks, localDb.links, localDb.templates, localDb.databases, localDb.whiteboards], async () => {
+  await localDb.transaction('rw', [localDb.workspaces, localDb.workspace_members, localDb.notes, localDb.blocks, localDb.links, localDb.templates, localDb.databases, localDb.whiteboards], async () => {
     await localDb.workspaces.put(defaultWorkspace);
+    await localDb.workspace_members.put(defaultMember);
     await localDb.notes.bulkPut(notes);
     await localDb.blocks.bulkPut(blocks);
     await localDb.links.bulkPut(links);

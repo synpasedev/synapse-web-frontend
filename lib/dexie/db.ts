@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie';
-import { Note, Block, Link, Workspace, Template, Database, Whiteboard } from '@/types/domain';
+import { Note, Block, Link, Workspace, WorkspaceMember, WorkspaceInvite, Template, Database, Whiteboard } from '@/types/domain';
 import { SyncQueueItem } from '@/types/sync';
 
 export class SynapseDexieDB extends Dexie {
@@ -7,6 +7,8 @@ export class SynapseDexieDB extends Dexie {
   blocks!: Table<Block, string>;
   links!: Table<Link, string>;
   workspaces!: Table<Workspace, string>;
+  workspace_members!: Table<WorkspaceMember, string>;
+  workspace_invites!: Table<WorkspaceInvite, string>;
   templates!: Table<Template, string>;
   databases!: Table<Database, string>;
   whiteboards!: Table<Whiteboard, string>;
@@ -23,6 +25,11 @@ export class SynapseDexieDB extends Dexie {
       databases: 'id, workspace_id',
       whiteboards: 'id, workspace_id',
       sync_queue: 'id, entityId, table, operation, createdAt, status',
+    });
+    this.version(4).stores({
+      workspaces: 'id, slug, type',
+      workspace_members: 'id, workspace_id, user_id, role, email',
+      workspace_invites: 'id, workspace_id, invite_code, email',
     });
   }
 }

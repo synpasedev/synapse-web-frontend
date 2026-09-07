@@ -3,6 +3,9 @@ import { AppSidebar } from '@/components/sidebar/AppSidebar';
 import { CommandPalette } from '@/components/search/CommandPalette';
 import { TemplateModal } from '@/components/templates/TemplateModal';
 import { ThemeModal } from '@/components/theme/ThemeModal';
+import { CreateWorkspaceModal } from '@/components/workspace/CreateWorkspaceModal';
+import { InviteMembersModal } from '@/components/workspace/InviteMembersModal';
+import { WorkspaceSettingsModal } from '@/components/workspace/WorkspaceSettingsModal';
 
 export default function WorkspaceLayout({
   children,
@@ -35,6 +38,9 @@ async function WorkspaceLayoutContent({
       <CommandPalette workspaceId={workspaceId} />
       <TemplateModal workspaceId={workspaceId} />
       <ThemeModal />
+      <CreateWorkspaceModal />
+      <InviteMembersModal workspaceId={workspaceId} />
+      <WorkspaceSettingsModal workspaceId={workspaceId} />
     </div>
   );
 }
