@@ -39,9 +39,9 @@ export default function IndividualCanvasPage({
   }
 
   return (
-    <div className="w-full h-screen overflow-hidden flex flex-col relative bg-[#0e0f14]">
+    <div className="w-full h-screen overflow-hidden flex flex-col relative bg-background text-foreground">
       {/* Top Header Bar */}
-      <div className="h-12 px-4 border-b border-border/40 bg-[#15161c]/90 backdrop-blur-xl flex items-center justify-between z-30 shrink-0">
+      <div className="h-12 px-4 border-b border-sidebar-border bg-sidebar/95 backdrop-blur-xl flex items-center justify-between z-30 shrink-0">
         <div className="flex items-center gap-3">
           {/* Back to Canvas List */}
           <Link
@@ -53,11 +53,11 @@ export default function IndividualCanvasPage({
             <span className="hidden sm:inline">All Canvases</span>
           </Link>
 
-          <div className="h-4 w-px bg-border/40" />
+          <div className="h-4 w-px bg-sidebar-border" />
 
           <div className="flex items-center gap-2">
             <span className="text-lg">{whiteboard?.icon || '🎨'}</span>
-            <span className="text-xs font-bold text-foreground tracking-tight max-w-[180px] sm:max-w-xs truncate">
+            <span className="text-sm font-bold text-heading tracking-tight max-w-[180px] sm:max-w-xs truncate">
               {whiteboard?.title || 'Whiteboard Canvas'}
             </span>
           </div>

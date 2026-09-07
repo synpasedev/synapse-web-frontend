@@ -351,7 +351,7 @@ export const FigJamTemplateModal: React.FC<{
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
-      <div className="w-full max-w-2xl bg-[#181922] border border-border/80 rounded-3xl p-6 shadow-2xl overflow-hidden relative">
+      <div className="w-full max-w-2xl bg-card border border-border rounded-3xl p-6 shadow-2xl overflow-hidden relative text-foreground">
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-border/40 mb-5">
           <div className="flex items-center gap-2.5">

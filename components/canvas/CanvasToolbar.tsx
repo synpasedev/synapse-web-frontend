@@ -117,7 +117,7 @@ export const CanvasToolbar: React.FC<{
     <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center gap-2 select-none pointer-events-auto">
       {/* Floating Sub-palette when Pen/Highlighter or Stamp is Active */}
       {isDrawingTool && (
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-[#181922]/95 backdrop-blur-xl border border-border/80 shadow-2xl animate-in fade-in slide-in-from-bottom-2 duration-150">
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-card/95 backdrop-blur-xl border border-border shadow-2xl animate-in fade-in slide-in-from-bottom-2 duration-150">
           <span className="text-[11px] font-semibold text-muted-foreground uppercase mr-1">
             {activeTool === 'pen' ? 'Pen' : 'Highlighter'}
           </span>
@@ -164,7 +164,7 @@ export const CanvasToolbar: React.FC<{
 
       {/* Stamp Picker Drawer */}
       {showStampPicker && (
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-[#181922]/95 backdrop-blur-xl border border-border/80 shadow-2xl animate-in fade-in slide-in-from-bottom-2 duration-150">
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-card/95 backdrop-blur-xl border border-border shadow-2xl animate-in fade-in slide-in-from-bottom-2 duration-150">
           <span className="text-[11px] font-semibold text-muted-foreground mr-1">Stamps:</span>
           {FIGJAM_STAMP_EMOJIS.map((emoji) => (
             <button
@@ -188,7 +188,7 @@ export const CanvasToolbar: React.FC<{
       {/* Main FigJam Bottom Dock */}
       <div className="flex items-center gap-2">
         {/* History / Templates / Tidy */}
-        <div className="flex items-center gap-1 p-1.5 rounded-2xl bg-[#181922]/95 backdrop-blur-xl border border-border/80 shadow-2xl shrink-0">
+        <div className="flex items-center gap-1 p-1.5 rounded-2xl bg-card/95 backdrop-blur-xl border border-border shadow-2xl shrink-0">
           <button
             type="button"
             onClick={onUndo}
@@ -238,7 +238,7 @@ export const CanvasToolbar: React.FC<{
         </div>
 
         {/* Primary FigJam Toolset */}
-        <div className="flex items-center gap-1 p-1.5 rounded-2xl bg-[#181922]/95 backdrop-blur-xl border border-border/80 shadow-2xl">
+        <div className="flex items-center gap-1 p-1.5 rounded-2xl bg-card/95 backdrop-blur-xl border border-border shadow-2xl">
           {/* Select */}
           <button
             type="button"
@@ -533,7 +533,7 @@ export const CanvasToolbar: React.FC<{
         </div>
 
         {/* Viewport Zoom & Export */}
-        <div className="flex items-center gap-1 p-1.5 rounded-2xl bg-[#181922]/95 backdrop-blur-xl border border-border/80 shadow-2xl text-xs shrink-0">
+        <div className="flex items-center gap-1 p-1.5 rounded-2xl bg-card/95 backdrop-blur-xl border border-border shadow-2xl text-xs shrink-0">
           <button
             type="button"
             onClick={onZoomOut}

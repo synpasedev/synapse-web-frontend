@@ -77,7 +77,7 @@ export const CanvasMinimap: React.FC<{
     <div className="fixed top-16 right-6 z-40 select-none">
       <div
         onClick={handleClick}
-        className="w-[180px] h-[120px] rounded-2xl bg-[#14151e]/90 backdrop-blur-xl border border-border/80 shadow-2xl p-1.5 relative overflow-hidden cursor-crosshair group transition-all hover:border-indigo-500/50"
+        className="w-[180px] h-[120px] rounded-2xl bg-card/90 backdrop-blur-xl border border-border shadow-2xl p-1.5 relative overflow-hidden cursor-crosshair group transition-all hover:border-primary/50 text-foreground"
       >
         {/* Element dots / rectangles */}
         {elements.map((el) => {

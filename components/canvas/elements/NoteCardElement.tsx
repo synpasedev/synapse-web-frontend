@@ -28,7 +28,7 @@ export const NoteCardElement: React.FC<{
   return (
     <div
       onDoubleClick={handleOpenNote}
-      className={`w-full h-full rounded-2xl p-4 bg-[#1a1b24]/90 backdrop-blur-xl border border-border/80 shadow-2xl flex flex-col justify-between group select-none transition-all relative ${
+      className={`w-full h-full rounded-2xl p-4 bg-card/90 backdrop-blur-xl border border-border shadow-2xl flex flex-col justify-between group select-none transition-all relative text-card-foreground ${
         isSelected ? 'ring-2 ring-indigo-400 border-indigo-500/50 shadow-indigo-500/20' : 'hover:border-border'
       }`}
     >
@@ -80,7 +80,7 @@ export const NoteCardElement: React.FC<{
             <div className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-300">
               <FileText className="w-4 h-4" />
             </div>
-            <h4 className="text-xs font-bold text-foreground truncate">{title}</h4>
+            <h4 className="text-xs font-bold text-heading truncate">{title}</h4>
           </div>
 
           <button

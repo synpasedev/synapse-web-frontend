@@ -551,7 +551,7 @@ export const WhiteboardCanvas: React.FC<{
         y: Math.round(y - 20),
         width: 160,
         height: 48,
-        content: { text: 'Text Label', font_size: 18, color: '#f8fafc' },
+        content: { text: 'Text Label', font_size: 18, color: 'var(--foreground)' },
         z_index: elements.length + 1,
         created_at: now,
         updated_at: now,
@@ -1173,7 +1173,7 @@ export const WhiteboardCanvas: React.FC<{
       onDoubleClick={handleDoubleClick}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
-      className={`w-full h-full relative overflow-hidden bg-[#0e0f14] select-none ${
+      className={`w-full h-full relative overflow-hidden bg-background text-foreground select-none ${
         activeTool === 'hand' || isSpacePressed || isPanning
           ? isPanning
             ? 'cursor-grabbing'
@@ -1202,7 +1202,7 @@ export const WhiteboardCanvas: React.FC<{
       />
 
       {/* Dot Grid Background */}
-      <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-20">
+      <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-30">
         <defs>
           <pattern
             id="dot-grid"
@@ -1213,7 +1213,7 @@ export const WhiteboardCanvas: React.FC<{
               viewport.y % (32 * viewport.zoom)
             })`}
           >
-            <circle cx="2" cy="2" r="1.2" fill="#818cf8" />
+            <circle cx="2" cy="2" r="1.2" fill="currentColor" className="text-muted-foreground/40" />
           </pattern>
         </defs>
         <rect width="100%" height="100%" fill="url(#dot-grid)" />
@@ -1230,7 +1230,7 @@ export const WhiteboardCanvas: React.FC<{
         <svg className="absolute top-0 left-0 w-[8000px] h-[8000px] pointer-events-none z-10">
           <defs>
             <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-              <polygon points="0 0, 8 3, 0 6" fill="#818cf8" />
+              <polygon points="0 0, 8 3, 0 6" fill="var(--primary)" />
             </marker>
           </defs>
 
@@ -1453,18 +1453,18 @@ export const WhiteboardCanvas: React.FC<{
 
       {/* Floating Multi-Selection Action Pill */}
       {selectedIds.size > 0 && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-[#181922]/95 backdrop-blur-xl border border-border/80 shadow-2xl animate-in fade-in slide-in-from-bottom-2 duration-150 select-none">
-          <span className="text-xs font-semibold text-foreground px-1">
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-card/95 backdrop-blur-xl border border-border shadow-2xl animate-in fade-in slide-in-from-bottom-2 duration-150 select-none text-foreground">
+          <span className="text-xs font-semibold text-heading px-1">
             {selectedIds.size} {selectedIds.size === 1 ? 'item' : 'items'} selected
           </span>
-          <div className="w-px h-3.5 bg-border/60 mx-0.5" />
+          <div className="w-px h-3.5 bg-border mx-0.5" />
           <button
             type="button"
             onClick={handleDuplicateSelected}
             className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors cursor-pointer"
             title="Duplicate (Ctrl+D)"
           >
-            <Copy className="w-3.5 h-3.5 text-indigo-400" />
+            <Copy className="w-3.5 h-3.5 text-primary" />
             <span>Duplicate</span>
             <kbd className="text-[10px] font-mono text-muted-foreground/60 ml-0.5">Ctrl+D</kbd>
           </button>

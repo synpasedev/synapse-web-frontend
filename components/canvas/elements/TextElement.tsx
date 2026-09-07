@@ -13,7 +13,7 @@ export const TextElement: React.FC<{
   const [isEditing, setIsEditing] = useState(false);
   const text = element.content.text || '';
   const fontSize = element.content.font_size || 16;
-  const color = element.content.color || '#f1f5f9';
+  const color = element.content.color || 'var(--foreground)';
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {

@@ -84,7 +84,7 @@ export const FigJamTimer: React.FC = () => {
 
       {/* Popover Card */}
       {isOpen && (
-        <div className="absolute top-11 right-0 z-50 w-64 p-3.5 rounded-2xl bg-[#181922]/95 backdrop-blur-xl border border-border/80 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+        <div className="absolute top-11 right-0 z-50 w-64 p-3.5 rounded-2xl bg-card/95 backdrop-blur-xl border border-border shadow-2xl animate-in fade-in zoom-in-95 duration-150 text-foreground">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
               <Timer className="w-4 h-4 text-indigo-400" />
