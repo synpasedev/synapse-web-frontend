@@ -278,7 +278,8 @@ export default function SharedResourcePage({
             href={openInAppPath}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold shadow-xs transition-all"
           >
-            <span>Open in Workspace</span>
+            <span className="hidden sm:inline">Open in Workspace</span>
+            <span className="sm:hidden">Open</span>
             <ExternalLink className="w-3 h-3" />
           </Link>
         </div>

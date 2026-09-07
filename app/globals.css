@@ -287,3 +287,12 @@ h3 {
   border: 1px solid var(--border);
   box-shadow: 0 16px 36px -12px rgba(0, 0, 0, 0.45);
 }
+
+/* Hide scrollbars for touch-friendly horizontal swipe bars */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

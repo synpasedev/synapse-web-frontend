@@ -114,20 +114,20 @@ export const CanvasToolbar: React.FC<{
   const isDrawingTool = activeTool === 'pen' || activeTool === 'highlighter';
 
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center gap-2 select-none pointer-events-auto">
+    <div className="fixed bottom-3 sm:bottom-6 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center gap-1.5 sm:gap-2 select-none pointer-events-auto max-w-[96vw] w-max">
       {/* Floating Sub-palette when Pen/Highlighter or Stamp is Active */}
       {isDrawingTool && (
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-card/95 backdrop-blur-xl border border-border shadow-2xl animate-in fade-in slide-in-from-bottom-2 duration-150">
-          <span className="text-[11px] font-semibold text-muted-foreground uppercase mr-1">
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-card/95 backdrop-blur-xl border border-border shadow-2xl animate-in fade-in slide-in-from-bottom-2 duration-150 max-w-full overflow-x-auto no-scrollbar">
+          <span className="text-[11px] font-semibold text-muted-foreground uppercase mr-1 shrink-0">
             {activeTool === 'pen' ? 'Pen' : 'Highlighter'}
           </span>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 shrink-0">
             {FIGJAM_DRAWING_COLORS.map((c) => (
               <button
                 key={c.name}
                 type="button"
                 onClick={() => setDrawingColor(c.color)}
-                className={`w-5 h-5 rounded-full border transition-transform cursor-pointer ${
+                className={`w-5 h-5 rounded-full border transition-transform cursor-pointer shrink-0 ${
                   drawingColor === c.color ? 'scale-125 ring-2 ring-indigo-400 border-white' : 'border-white/20 hover:scale-110'
                 }`}
                 style={{ backgroundColor: c.color }}
@@ -136,36 +136,29 @@ export const CanvasToolbar: React.FC<{
             ))}
           </div>
 
-          <div className="w-px h-4 bg-border/60 mx-1" />
+          <div className="w-px h-4 bg-border/60 mx-1 shrink-0" />
 
-          {/* Stroke Width Selector */}
-          <div className="flex items-center gap-1">
-            {[
-              { label: 'S', width: 2 },
-              { label: 'M', width: 4 },
-              { label: 'L', width: 8 },
-            ].map((s) => (
-              <button
-                key={s.label}
-                type="button"
-                onClick={() => setDrawingWidth(s.width)}
-                className={`w-6 h-6 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-                  drawingWidth === s.width
-                    ? 'bg-indigo-500 text-white shadow-xs'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60'
-                }`}
-              >
-                {s.label}
-              </button>
-            ))}
+          {/* Stroke Width Slider */}
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-[10px] text-muted-foreground hidden sm:inline">Size</span>
+            <input
+              type="range"
+              min="2"
+              max="24"
+              value={drawingWidth}
+              onChange={(e) => setDrawingWidth(Number(e.target.value))}
+              className="w-16 h-1.5 bg-secondary rounded-lg appearance-none cursor-pointer accent-indigo-400"
+            />
+            <span className="text-[10px] font-mono text-muted-foreground w-4 text-right">
+              {drawingWidth}
+            </span>
           </div>
         </div>
       )}
 
-      {/* Stamp Picker Drawer */}
+      {/* Floating Stamp Picker Bar */}
       {showStampPicker && (
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-card/95 backdrop-blur-xl border border-border shadow-2xl animate-in fade-in slide-in-from-bottom-2 duration-150">
-          <span className="text-[11px] font-semibold text-muted-foreground mr-1">Stamps:</span>
+        <div className="flex items-center gap-1 p-1.5 rounded-2xl bg-card/95 backdrop-blur-xl border border-border shadow-2xl animate-in fade-in zoom-in-95 duration-150 max-w-full overflow-x-auto no-scrollbar">
           {FIGJAM_STAMP_EMOJIS.map((emoji) => (
             <button
               key={emoji}
@@ -175,8 +168,8 @@ export const CanvasToolbar: React.FC<{
                 setActiveTool('stamp');
                 setShowStampPicker(false);
               }}
-              className={`p-1 text-xl rounded-xl hover:scale-125 transition-transform cursor-pointer ${
-                activeStamp === emoji && activeTool === 'stamp' ? 'bg-indigo-500/20 ring-1 ring-indigo-400' : ''
+              className={`w-8 h-8 rounded-xl flex items-center justify-center text-lg hover:bg-secondary/80 hover:scale-110 transition-transform cursor-pointer shrink-0 ${
+                activeStamp === emoji ? 'bg-primary/20 ring-2 ring-primary scale-105' : ''
               }`}
             >
               {emoji}
@@ -186,9 +179,9 @@ export const CanvasToolbar: React.FC<{
       )}
 
       {/* Main FigJam Bottom Dock */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5 sm:gap-2 max-w-full overflow-x-auto no-scrollbar px-1 py-0.5">
         {/* History / Templates / Tidy */}
-        <div className="flex items-center gap-1 p-1.5 rounded-2xl bg-card/95 backdrop-blur-xl border border-border shadow-2xl shrink-0">
+        <div className="flex items-center gap-1 p-1 sm:p-1.5 rounded-2xl bg-card/95 backdrop-blur-xl border border-border shadow-2xl shrink-0">
           <button
             type="button"
             onClick={onUndo}
