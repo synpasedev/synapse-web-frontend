@@ -36,6 +36,8 @@ import {
   Square,
   MinusSquare,
   Search,
+  Loader2,
+  Sparkles,
 } from 'lucide-react';
 
 function getRecipientName(email: string): string {
@@ -91,6 +93,15 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
     skippedAlreadyInvited: string[];
   } | null>(null);
 
+  // Nodemailer direct sending state
+  const [sendDirectEmail, setSendDirectEmail] = useState<boolean>(true);
+  const [isSendingEmail, setIsSendingEmail] = useState<boolean>(false);
+  const [emailFeedback, setEmailFeedback] = useState<{
+    type: 'success' | 'error' | 'info';
+    message: string;
+    details?: string;
+  } | null>(null);
+
   // Members tab state (multi-select & batch manage)
   const [selectedMemberIds, setSelectedMemberIds] = useState<Set<string>>(new Set());
   const [isConfirmingBulkRemove, setIsConfirmingBulkRemove] = useState(false);
@@ -130,6 +141,7 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
     setInviteError(null);
     setActiveTemplate(null);
     setBatchResult(null);
+    setEmailFeedback(null);
     setSelectedMemberIds(new Set());
     setIsConfirmingBulkRemove(false);
     setBulkStatusMsg(null);
@@ -137,10 +149,68 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
     setInviteModalOpen(false);
   };
 
+  /**
+   * Direct email sender via Nodemailer API route
+   */
+  const sendDirectInviteViaNodemailer = async (
+    recipients: string[],
+    inviteCodes?: Record<string, string>
+  ) => {
+    if (recipients.length === 0) return false;
+    setIsSendingEmail(true);
+    setEmailFeedback(null);
+
+    try {
+      const res = await fetch('/api/invite/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipients,
+          inviteCodes,
+          workspaceName: workspace?.name,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.missingConfig) {
+          setEmailFeedback({
+            type: 'info',
+            message: 'Nodemailer SMTP not configured on server.',
+            details:
+              'Set SMTP_USER and SMTP_PASS (or Gmail App Password) in .env.local to enable automatic delivery. You can still send via your email client or copy the message.',
+          });
+        } else {
+          setEmailFeedback({
+            type: 'error',
+            message: data.error || 'Failed to send direct email via Nodemailer.',
+          });
+        }
+        return false;
+      }
+
+      const sentCount = data.summary?.sent ?? recipients.length;
+      setEmailFeedback({
+        type: 'success',
+        message: `Direct invite email${sentCount > 1 ? 's' : ''} sent successfully via Nodemailer to ${sentCount} recipient${sentCount > 1 ? 's' : ''}!`,
+      });
+      return true;
+    } catch (err: any) {
+      setEmailFeedback({
+        type: 'error',
+        message: err.message || 'Error communicating with Nodemailer email service.',
+      });
+      return false;
+    } finally {
+      setIsSendingEmail(false);
+    }
+  };
+
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     setInviteError(null);
     setBatchResult(null);
+    setEmailFeedback(null);
 
     // Multi-email invite
     if (parsedEmails.length > 1) {
@@ -160,6 +230,18 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
             email: res.added[0].email,
             code: res.added[0].inviteCode,
           });
+
+          // If auto direct sending is active, dispatch emails to all added recipients
+          if (sendDirectEmail) {
+            const codeMap: Record<string, string> = {};
+            res.added.forEach((item) => {
+              codeMap[item.email.toLowerCase()] = item.inviteCode;
+            });
+            await sendDirectInviteViaNodemailer(
+              res.added.map((item) => item.email),
+              codeMap
+            );
+          }
         }
       } catch (err: any) {
         setInviteError(err.message || 'Failed to send bulk invites.');
@@ -184,6 +266,15 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
           email: singleEmail,
           code: res.invite?.invite_code,
         });
+
+        // Directly send via Nodemailer if toggle is active
+        if (sendDirectEmail) {
+          const codeMap: Record<string, string> = {};
+          if (res.invite?.invite_code) {
+            codeMap[singleEmail.toLowerCase()] = res.invite.invite_code;
+          }
+          await sendDirectInviteViaNodemailer([singleEmail], codeMap);
+        }
       } else if (res.invite?.invite_code) {
         handleCopyLink(res.invite.invite_code);
       }
@@ -191,6 +282,7 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
       setInviteError(err.message || 'Failed to send invite.');
     }
   };
+
 
   const handleCopyLink = (code: string) => {
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
@@ -387,6 +479,7 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
                             setEmailInput(e.target.value);
                             if (inviteError) setInviteError(null);
                             if (batchResult) setBatchResult(null);
+                            if (emailFeedback) setEmailFeedback(null);
                           }}
                           className="w-full pl-9 pr-3 py-2 text-xs bg-secondary/50 border border-border/60 rounded-xl text-foreground placeholder:text-muted-foreground/60 focus:outline-hidden focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all resize-y"
                         />
@@ -405,11 +498,14 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
 
                         <button
                           type="submit"
-                          disabled={!emailInput.trim() || isInviting}
+                          disabled={!emailInput.trim() || isInviting || isSendingEmail}
                           className="px-4 py-2 text-xs font-bold text-primary-foreground bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl shadow-xs transition-all cursor-pointer whitespace-nowrap h-[38px] flex items-center gap-1.5"
                         >
-                          {isInviting ? (
-                            'Inviting...'
+                          {isInviting || isSendingEmail ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <span>{isSendingEmail ? 'Sending...' : 'Inviting...'}</span>
+                            </>
                           ) : parsedEmails.length > 1 ? (
                             <>
                               <UserPlus className="w-3.5 h-3.5" />
@@ -421,8 +517,58 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
                         </button>
                       </div>
                     </div>
+
+                    {/* Direct Nodemailer auto-send toggle */}
+                    <div className="flex items-center justify-between pt-2">
+                      <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-foreground/80 hover:text-foreground">
+                        <input
+                          type="checkbox"
+                          checked={sendDirectEmail}
+                          onChange={(e) => setSendDirectEmail(e.target.checked)}
+                          className="w-3.5 h-3.5 rounded border-border/70 text-indigo-600 focus:ring-indigo-500/20 cursor-pointer"
+                        />
+                        <span>Directly send invite message via Nodemailer</span>
+                      </label>
+                      <span className="text-[10px] text-indigo-400 font-mono font-medium flex items-center gap-1">
+                        <Sparkles className="w-3 h-3" /> Nodemailer SMTP
+                      </span>
+                    </div>
                   </div>
                 </form>
+
+                {/* Email Delivery Feedback Banner */}
+                {emailFeedback && (
+                  <div
+                    className={`mt-2.5 p-3 rounded-xl border text-xs flex items-start gap-2.5 animate-in fade-in ${
+                      emailFeedback.type === 'success'
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                        : emailFeedback.type === 'error'
+                        ? 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+                        : 'bg-indigo-500/10 border-indigo-500/30 text-indigo-300'
+                    }`}
+                  >
+                    {emailFeedback.type === 'success' ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                    ) : emailFeedback.type === 'error' ? (
+                      <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                    ) : (
+                      <Mail className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+                    )}
+                    <div className="flex-1 leading-relaxed">
+                      <div className="font-semibold">{emailFeedback.message}</div>
+                      {emailFeedback.details && (
+                        <div className="text-[11px] opacity-80 mt-1">{emailFeedback.details}</div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEmailFeedback(null)}
+                      className="text-muted-foreground hover:text-foreground cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
 
                 {/* Error Banner */}
                 {inviteError && (
@@ -459,6 +605,38 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
                         <X className="w-3.5 h-3.5" />
                       </button>
                     </div>
+
+                    {batchResult.added.length > 0 && (
+                      <div className="pt-1 flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={isSendingEmail}
+                          onClick={() => {
+                            const codeMap: Record<string, string> = {};
+                            batchResult.added.forEach((a) => {
+                              codeMap[a.email.toLowerCase()] = a.inviteCode;
+                            });
+                            sendDirectInviteViaNodemailer(
+                              batchResult.added.map((a) => a.email),
+                              codeMap
+                            );
+                          }}
+                          className="px-3 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          {isSendingEmail ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <span>Sending Emails...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Send className="w-3.5 h-3.5" />
+                              <span>Send via Nodemailer to All ({batchResult.added.length})</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    )}
 
                     {batchResult.skippedAlreadyMember.length > 0 && (
                       <div className="text-[11px] text-muted-foreground">
@@ -518,16 +696,44 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
                     )}
                   </div>
 
-                  <div className="flex items-center gap-2 pt-1">
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    {/* Primary Direct Nodemailer Button */}
+                    <button
+                      type="button"
+                      disabled={isSendingEmail}
+                      onClick={() => {
+                        const codeMap = activeTemplate.code
+                          ? { [activeTemplate.email.toLowerCase()]: activeTemplate.code }
+                          : undefined;
+                        sendDirectInviteViaNodemailer([activeTemplate.email], codeMap);
+                      }}
+                      className="flex-1 py-2 px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                      {isSendingEmail ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Sending via Nodemailer...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Send via Nodemailer</span>
+                        </>
+                      )}
+                    </button>
+
+                    {/* Mailto link fallback */}
                     <button
                       type="button"
                       onClick={() => handleSendEmailApp(activeTemplate.email, activeTemplate.code)}
-                      className="flex-1 py-2 px-3 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-xs shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="py-2 px-3 rounded-xl bg-secondary hover:bg-secondary/80 text-foreground font-medium text-xs border border-border/60 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                      title="Open in default email app (Apple Mail, Outlook, etc.)"
                     >
-                      <Send className="w-3.5 h-3.5" />
-                      <span>Send via Email App</span>
+                      <Mail className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Default App</span>
                     </button>
 
+                    {/* Copy text fallback */}
                     <button
                       type="button"
                       onClick={() => handleCopyTemplateText(activeTemplate.email, activeTemplate.code)}
@@ -541,7 +747,7 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
                       ) : (
                         <>
                           <Copy className="w-3.5 h-3.5" />
-                          <span>Copy Message</span>
+                          <span>Copy</span>
                         </>
                       )}
                     </button>
@@ -632,19 +838,34 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0">
                           {inv.email && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setActiveTemplate({
-                                  email: inv.email!,
-                                  code: inv.invite_code,
-                                })
-                              }
-                              className="p-1.5 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 rounded-lg transition-colors cursor-pointer"
-                              title="Send or view email template"
-                            >
-                              <Mail className="w-3.5 h-3.5" />
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                disabled={isSendingEmail}
+                                onClick={() => {
+                                  sendDirectInviteViaNodemailer([inv.email!], {
+                                    [inv.email!.toLowerCase()]: inv.invite_code,
+                                  });
+                                }}
+                                className="p-1.5 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 rounded-lg transition-colors cursor-pointer"
+                                title="Send invite email directly via Nodemailer"
+                              >
+                                <Send className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setActiveTemplate({
+                                    email: inv.email!,
+                                    code: inv.invite_code,
+                                  })
+                                }
+                                className="p-1.5 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 rounded-lg transition-colors cursor-pointer"
+                                title="View template or send via default email app"
+                              >
+                                <Mail className="w-3.5 h-3.5" />
+                              </button>
+                            </>
                           )}
                           <button
                             type="button"
