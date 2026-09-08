@@ -246,6 +246,41 @@ export function useInviteMember() {
       let newMember: WorkspaceMember | undefined;
 
       if (email && email.trim()) {
+        const normalizedEmail = email.trim().toLowerCase();
+
+        // 1. Check if user is already an existing member of this workspace
+        const existingMembers = await localDb.workspace_members
+          .where('workspace_id')
+          .equals(workspaceId)
+          .toArray();
+
+        const alreadyMember = existingMembers.find(
+          (m) => m.email && m.email.trim().toLowerCase() === normalizedEmail
+        );
+        if (alreadyMember) {
+          throw new Error(
+            `"${email.trim()}" is already a member of this workspace (${alreadyMember.role}).`
+          );
+        }
+
+        // 2. Check if an active invite has already been sent to this user
+        const existingInvites = await localDb.workspace_invites
+          .where('workspace_id')
+          .equals(workspaceId)
+          .toArray();
+
+        const alreadyInvited = existingInvites.find(
+          (i) =>
+            i.email &&
+            i.email.trim().toLowerCase() === normalizedEmail &&
+            (!i.expires_at || new Date(i.expires_at) > new Date())
+        );
+        if (alreadyInvited) {
+          throw new Error(
+            `An invite has already been sent to "${email.trim()}" (Code: ${alreadyInvited.invite_code}).`
+          );
+        }
+
         const memberId = `mem-${crypto.randomUUID().slice(0, 8)}`;
         newMember = {
           id: memberId,
