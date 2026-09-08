@@ -12,6 +12,7 @@ import {
   useRevokeInvite,
 } from '@/hooks/use-workspace';
 import { WorkspaceRole } from '@/types/domain';
+import { useAuth } from '@/hooks/use-auth';
 import {
   X,
   Users,
@@ -28,6 +29,7 @@ import {
 } from 'lucide-react';
 
 export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspaceId }) => {
+  const { user } = useAuth();
   const { isInviteModalOpen, setInviteModalOpen } = useUIStore();
   const { data: workspace } = useWorkspace(workspaceId);
   const { data: members = [] } = useWorkspaceMembers(workspaceId);
@@ -311,6 +313,21 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
               <div className="space-y-2">
                 {members.map((member) => {
                   const isOwner = member.role === 'owner';
+                  const cachedEmail =
+                    typeof window !== 'undefined'
+                      ? localStorage.getItem('synapse_current_user_email')
+                      : null;
+                  const ownerFallbackEmail = user?.email || cachedEmail || 'owner@synapse.io';
+                  const displayEmail =
+                    isOwner &&
+                    (!member.email ||
+                      member.email === 'user@synapse.local' ||
+                      member.email === 'guest@synapse.local')
+                      ? ownerFallbackEmail
+                      : member.email;
+                  const displayName = member.name || displayEmail?.split('@')[0] || 'User';
+                  const initial = (displayEmail || displayName || 'U').charAt(0).toUpperCase();
+
                   return (
                     <div
                       key={member.id}
@@ -318,11 +335,11 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
                         <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-xs shrink-0">
-                          {member.email ? member.email[0].toUpperCase() : 'U'}
+                          {initial}
                         </div>
                         <div className="min-w-0">
                           <div className="text-xs font-semibold text-foreground truncate flex items-center gap-1.5">
-                            <span>{member.email || `User (${member.user_id})`}</span>
+                            <span>{displayEmail || `User (${member.user_id})`}</span>
                             {isOwner && (
                               <span className="text-[10px] font-bold text-amber-400 flex items-center gap-0.5 bg-amber-400/10 px-1.5 py-0.2 rounded">
                                 <Crown className="w-2.5 h-2.5" /> Owner

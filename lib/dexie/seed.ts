@@ -3,14 +3,30 @@ import { Note, Block, Link, Workspace, Template, Database, Whiteboard } from '@/
 
 export const DEFAULT_WORKSPACE_ID = 'ws-default-synapse';
 
-export async function ensureSeedData() {
+function getInitialOwnerEmail(): string {
+  if (typeof window !== 'undefined') {
+    const cached = localStorage.getItem('synapse_current_user_email');
+    if (cached && cached !== 'user@synapse.local' && cached !== 'guest@synapse.local') return cached;
+    try {
+      const localUser = localStorage.getItem('synapse_local_user');
+      if (localUser) {
+        const parsed = JSON.parse(localUser);
+        if (parsed?.email && parsed.email !== 'user@synapse.local' && parsed.email !== 'guest@synapse.local') {
+          return parsed.email;
+        }
+      }
+    } catch {}
+  }
+  return 'user@synapse.local';
+}
+
+export async function ensureSeedData(): Promise<void> {
   if (typeof window === 'undefined') return;
 
-  const count = await localDb.workspaces.count();
-  if (count > 0) {
-    // Migration: ensure existing workspaces have type and default member
-    const workspaces = await localDb.workspaces.toArray();
-    for (const ws of workspaces) {
+  const existingWorkspaces = await localDb.workspaces.toArray();
+  if (existingWorkspaces.length > 0) {
+    const currentEmail = getInitialOwnerEmail();
+    for (const ws of existingWorkspaces) {
       if (!ws.type) {
         await localDb.workspaces.update(ws.id, { type: 'private', role: 'owner' });
       }
@@ -21,9 +37,17 @@ export async function ensureSeedData() {
           workspace_id: ws.id,
           user_id: ws.owner_id || 'local-user-1',
           role: 'owner',
-          email: 'user@synapse.local',
+          email: currentEmail,
           created_at: ws.created_at || new Date().toISOString(),
           updated_at: ws.updated_at || new Date().toISOString(),
+        });
+      } else if (
+        member.role === 'owner' &&
+        (!member.email || member.email === 'user@synapse.local' || member.email === 'guest@synapse.local') &&
+        currentEmail !== 'user@synapse.local'
+      ) {
+        await localDb.workspace_members.update(member.id, {
+          email: currentEmail,
         });
       }
     }
@@ -32,6 +56,7 @@ export async function ensureSeedData() {
 
   const now = new Date().toISOString();
   const userId = 'local-user-1';
+  const initialEmail = getInitialOwnerEmail();
 
   // 1. Default Workspace
   const defaultWorkspace: Workspace = {
@@ -51,7 +76,7 @@ export async function ensureSeedData() {
     workspace_id: DEFAULT_WORKSPACE_ID,
     user_id: userId,
     role: 'owner',
-    email: 'user@synapse.local',
+    email: initialEmail,
     created_at: now,
     updated_at: now,
   };

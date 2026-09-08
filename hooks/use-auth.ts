@@ -41,11 +41,14 @@ export function useAuth() {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
+          const email = user.email || '';
+          const name = user.user_metadata?.full_name || user.email?.split('@')[0] || 'User';
           setUser({
             id: user.id,
-            email: user.email || '',
-            name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
+            email,
+            name,
           });
+          syncOwnerEmail(email, name);
         } else {
           setUser(null);
         }
@@ -60,11 +63,14 @@ export function useAuth() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
+        const email = session.user.email || '';
+        const name = session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User';
         setUser({
           id: session.user.id,
-          email: session.user.email || '',
-          name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User',
+          email,
+          name,
         });
+        syncOwnerEmail(email, name);
       } else {
         setUser(null);
       }
@@ -74,6 +80,28 @@ export function useAuth() {
     return () => subscription.unsubscribe();
   }, []);
 
+  const syncOwnerEmail = async (email: string, name?: string) => {
+    if (!email || email === 'user@synapse.local') return;
+    try {
+      localStorage.setItem('synapse_current_user_email', email);
+      if (name) localStorage.setItem('synapse_current_user_name', name);
+
+      // Find any workspace owner members that still have the default placeholder email
+      const placeholderOwners = await localDb.workspace_members
+        .filter((m) => m.role === 'owner' && (!m.email || m.email === 'user@synapse.local' || m.email === 'guest@synapse.local'))
+        .toArray();
+
+      for (const owner of placeholderOwners) {
+        await localDb.workspace_members.update(owner.id, {
+          email,
+          name: name || owner.name || email.split('@')[0],
+        });
+      }
+    } catch (e) {
+      console.error('Failed to sync owner email:', e);
+    }
+  };
+
   const loginLocal = async (name: string, email: string) => {
     const localUser: LocalUser = {
       id: 'usr-local',
@@ -82,10 +110,13 @@ export function useAuth() {
     };
     try {
       localStorage.setItem('synapse_local_user', JSON.stringify(localUser));
+      localStorage.setItem('synapse_current_user_email', localUser.email);
+      localStorage.setItem('synapse_current_user_name', localUser.name);
       // Update local workspace name
       await localDb.workspaces.update(DEFAULT_WORKSPACE_ID, {
         name: `${localUser.name}'s Brain`,
       });
+      syncOwnerEmail(localUser.email, localUser.name);
       setUser(localUser);
     } catch (e) {
       console.error(e);

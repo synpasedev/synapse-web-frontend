@@ -54,6 +54,39 @@ export function useWorkspaces() {
   });
 }
 
+function getCurrentUserEmailAndName(): { email: string; name: string; id: string } {
+  if (typeof window !== 'undefined') {
+    const cachedEmail = localStorage.getItem('synapse_current_user_email');
+    const cachedName = localStorage.getItem('synapse_current_user_name');
+    if (cachedEmail && cachedEmail !== 'user@synapse.local' && cachedEmail !== 'guest@synapse.local') {
+      return {
+        email: cachedEmail,
+        name: cachedName || cachedEmail.split('@')[0],
+        id: 'usr-current',
+      };
+    }
+
+    try {
+      const stored = localStorage.getItem('synapse_local_user');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed?.email && parsed.email !== 'user@synapse.local' && parsed.email !== 'guest@synapse.local') {
+          return {
+            email: parsed.email,
+            name: parsed.name || parsed.email.split('@')[0],
+            id: parsed.id || 'usr-local',
+          };
+        }
+      }
+    } catch {}
+  }
+  return {
+    email: 'user@synapse.local',
+    name: 'Workspace Owner',
+    id: 'local-user-1',
+  };
+}
+
 export function useWorkspaceMembers(workspaceId: string) {
   return useQuery({
     queryKey: ['workspace_members', workspaceId],
@@ -64,6 +97,25 @@ export function useWorkspaceMembers(workspaceId: string) {
         .where('workspace_id')
         .equals(workspaceId)
         .toArray();
+
+      // Auto-heal owner email if it was previously set to 'user@synapse.local'
+      const currentUser = getCurrentUserEmailAndName();
+      if (currentUser.email && currentUser.email !== 'user@synapse.local') {
+        for (const member of members) {
+          if (
+            member.role === 'owner' &&
+            (!member.email || member.email === 'user@synapse.local' || member.email === 'guest@synapse.local')
+          ) {
+            member.email = currentUser.email;
+            member.name = currentUser.name;
+            await localDb.workspace_members.update(member.id, {
+              email: currentUser.email,
+              name: currentUser.name,
+            });
+          }
+        }
+      }
+
       return members;
     },
     enabled: Boolean(workspaceId),
@@ -104,12 +156,15 @@ export function useCreateWorkspace() {
       const newWsId = `ws-${crypto.randomUUID().slice(0, 8)}`;
       const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'workspace';
 
+      const currentUser = getCurrentUserEmailAndName();
+      const ownerEmail = currentUser.email !== 'user@synapse.local' ? currentUser.email : 'user@synapse.local';
+
       const newWorkspace: Workspace = {
         id: newWsId,
         name,
         slug,
         icon,
-        owner_id: 'local-user-1',
+        owner_id: currentUser.id,
         created_at: now,
         updated_at: now,
         type,
@@ -120,9 +175,10 @@ export function useCreateWorkspace() {
       const ownerMember: WorkspaceMember = {
         id: `mem-${newWsId}-owner`,
         workspace_id: newWsId,
-        user_id: 'local-user-1',
+        user_id: currentUser.id,
+        name: currentUser.name,
         role: 'owner',
-        email: 'user@synapse.local',
+        email: ownerEmail,
         created_at: now,
         updated_at: now,
       };
