@@ -359,6 +359,167 @@ export function useRemoveMember() {
   });
 }
 
+export function useRemoveMultipleMembers() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      memberIds,
+      workspaceId,
+    }: {
+      memberIds: string[];
+      workspaceId: string;
+    }) => {
+      const members = await localDb.workspace_members.bulkGet(memberIds);
+      const nonOwnerIds = members
+        .filter((m): m is WorkspaceMember => Boolean(m && m.role !== 'owner'))
+        .map((m) => m.id);
+
+      await localDb.workspace_members.bulkDelete(nonOwnerIds);
+      return { removedCount: nonOwnerIds.length };
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['workspace_members', variables.workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ['workspace', variables.workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+    },
+  });
+}
+
+export function useUpdateMultipleMemberRoles() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      memberIds,
+      role,
+      workspaceId,
+    }: {
+      memberIds: string[];
+      role: WorkspaceRole;
+      workspaceId: string;
+    }) => {
+      const now = new Date().toISOString();
+      const members = await localDb.workspace_members.bulkGet(memberIds);
+      const nonOwners = members.filter((m): m is WorkspaceMember => Boolean(m && m.role !== 'owner'));
+
+      for (const m of nonOwners) {
+        await localDb.workspace_members.update(m.id, { role, updated_at: now });
+      }
+      return { updatedCount: nonOwners.length, role };
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['workspace_members', variables.workspaceId] });
+    },
+  });
+}
+
+export function useBatchInviteMembers() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      workspaceId,
+      emails,
+      role = 'editor',
+    }: {
+      workspaceId: string;
+      emails: string[];
+      role: WorkspaceRole;
+    }): Promise<{
+      added: Array<{ email: string; inviteCode: string; memberId: string }>;
+      skippedAlreadyMember: string[];
+      skippedAlreadyInvited: string[];
+    }> => {
+      await ensureSeedData();
+      const now = new Date().toISOString();
+
+      const existingMembers = await localDb.workspace_members
+        .where('workspace_id')
+        .equals(workspaceId)
+        .toArray();
+      const existingMemberEmails = new Set(
+        existingMembers.map((m) => m.email?.toLowerCase().trim()).filter(Boolean)
+      );
+
+      const existingInvites = await localDb.workspace_invites
+        .where('workspace_id')
+        .equals(workspaceId)
+        .toArray();
+      const existingInviteEmails = new Set(
+        existingInvites
+          .filter((i) => !i.expires_at || new Date(i.expires_at) > new Date())
+          .map((i) => i.email?.toLowerCase().trim())
+          .filter(Boolean)
+      );
+
+      const added: Array<{ email: string; inviteCode: string; memberId: string }> = [];
+      const skippedAlreadyMember: string[] = [];
+      const skippedAlreadyInvited: string[] = [];
+
+      const newInvites: WorkspaceInvite[] = [];
+      const newMembers: WorkspaceMember[] = [];
+
+      for (const rawEmail of emails) {
+        const cleanEmail = rawEmail.trim().toLowerCase();
+        if (!cleanEmail || !cleanEmail.includes('@')) continue;
+
+        if (existingMemberEmails.has(cleanEmail)) {
+          skippedAlreadyMember.push(cleanEmail);
+          continue;
+        }
+
+        if (existingInviteEmails.has(cleanEmail)) {
+          skippedAlreadyInvited.push(cleanEmail);
+          continue;
+        }
+
+        const inviteCode = `syn-${Math.random().toString(36).substring(2, 8)}`;
+        const memberId = `mem-${crypto.randomUUID().slice(0, 8)}`;
+        const inviteId = `inv-${crypto.randomUUID().slice(0, 8)}`;
+
+        newInvites.push({
+          id: inviteId,
+          workspace_id: workspaceId,
+          email: cleanEmail,
+          role,
+          invite_code: inviteCode,
+          created_by: 'local-user-1',
+          created_at: now,
+          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        });
+
+        newMembers.push({
+          id: memberId,
+          workspace_id: workspaceId,
+          user_id: `usr-${Math.random().toString(36).substring(2, 7)}`,
+          role,
+          email: cleanEmail,
+          created_at: now,
+          updated_at: now,
+        });
+
+        added.push({ email: cleanEmail, inviteCode, memberId });
+        existingMemberEmails.add(cleanEmail);
+        existingInviteEmails.add(cleanEmail);
+      }
+
+      await localDb.transaction('rw', [localDb.workspace_invites, localDb.workspace_members], async () => {
+        if (newInvites.length > 0) await localDb.workspace_invites.bulkPut(newInvites);
+        if (newMembers.length > 0) await localDb.workspace_members.bulkPut(newMembers);
+      });
+
+      return { added, skippedAlreadyMember, skippedAlreadyInvited };
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['workspace_members', variables.workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ['workspace_invites', variables.workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ['workspace', variables.workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+    },
+  });
+}
+
 export function useRevokeInvite() {
   const queryClient = useQueryClient();
 
