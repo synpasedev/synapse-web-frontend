@@ -82,10 +82,13 @@ function SignupForm() {
 
     try {
       const supabase = createBrowserClient();
+      const callbackUrl = getURL(
+        `/api/auth/callback?next=${encodeURIComponent(redirectUrl)}&redirect=${encodeURIComponent(redirectUrl)}`
+      );
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: getURL(`/api/auth/callback?redirect=${encodeURIComponent(redirectUrl)}`),
+          redirectTo: callbackUrl,
         },
       });
       if (error) throw error;

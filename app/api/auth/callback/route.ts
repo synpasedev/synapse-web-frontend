@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { getRequestOrigin, getURL } from '@/lib/url';
+import { getRequestOrigin } from '@/lib/url';
 import { DEFAULT_WORKSPACE_ID } from '@/lib/dexie/seed';
 
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url);
   const origin = getRequestOrigin(request);
 
-  // Extract query parameters
+  // Extract query parameters (support both 'next' and 'redirect' keys)
   const code = requestUrl.searchParams.get('code');
-  const next = requestUrl.searchParams.get('next') || `/${DEFAULT_WORKSPACE_ID}/notes`;
+  const nextParam =
+    requestUrl.searchParams.get('next') ||
+    requestUrl.searchParams.get('redirect') ||
+    `/${DEFAULT_WORKSPACE_ID}/notes`;
   const error = requestUrl.searchParams.get('error');
   const errorDescription = requestUrl.searchParams.get('error_description');
 
@@ -40,7 +43,19 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Ensure redirect URL is safe and points to the canonical host
-  const targetUrl = next.startsWith('/') ? `${origin}${next}` : next;
-  return NextResponse.redirect(new URL(targetUrl, origin));
+  // Resolve target path safely:
+  // If nextParam was an absolute URL (e.g. from local testing http://localhost:3000/share/note/1),
+  // extract only the pathname + search + hash and anchor it onto the current origin (e.g. Vercel domain)
+  let targetPath = nextParam;
+  try {
+    if (nextParam.startsWith('http://') || nextParam.startsWith('https://')) {
+      const parsed = new URL(nextParam);
+      targetPath = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    }
+  } catch {
+    targetPath = `/${DEFAULT_WORKSPACE_ID}/notes`;
+  }
+
+  const safeTarget = targetPath.startsWith('/') ? targetPath : `/${targetPath}`;
+  return NextResponse.redirect(new URL(safeTarget, origin));
 }

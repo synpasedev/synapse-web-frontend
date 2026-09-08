@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getEffectiveUserId } from '@/lib/google/auth-user';
+import { getRequestOrigin } from '@/lib/url';
 
 export async function GET(request: NextRequest) {
   const userId = await getEffectiveUserId();
@@ -13,7 +14,8 @@ export async function GET(request: NextRequest) {
     })
   ).toString('base64url');
 
-  const redirectUri = `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/api/integrations/google/callback`;
+  const origin = getRequestOrigin(request);
+  const redirectUri = `${origin}/api/integrations/google/callback`;
 
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID!,

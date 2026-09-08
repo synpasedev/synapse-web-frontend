@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { encrypt } from '@/lib/crypto';
+import { getRequestOrigin } from '@/lib/url';
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -8,21 +9,21 @@ export async function GET(request: NextRequest) {
   const stateRaw = searchParams.get('state');
   const error = searchParams.get('error');
 
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+  const origin = getRequestOrigin(request);
 
   if (error || !code || !stateRaw) {
     console.error('Google OAuth callback error:', error);
-    return NextResponse.redirect(`${siteUrl}/?error=google_auth_failed`);
+    return NextResponse.redirect(`${origin}/?error=google_auth_failed`);
   }
 
   let stateData: { userId: string; returnUrl: string };
   try {
     stateData = JSON.parse(Buffer.from(stateRaw, 'base64url').toString('utf8'));
   } catch (err) {
-    return NextResponse.redirect(`${siteUrl}/?error=invalid_state`);
+    return NextResponse.redirect(`${origin}/?error=invalid_state`);
   }
 
-  const redirectUri = `${siteUrl}/api/integrations/google/callback`;
+  const redirectUri = `${origin}/api/integrations/google/callback`;
 
   // 1. Exchange authorization code for tokens
   const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
@@ -40,7 +41,7 @@ export async function GET(request: NextRequest) {
   const tokens = await tokenRes.json();
   if (!tokenRes.ok) {
     console.error('Google token exchange error:', tokens);
-    return NextResponse.redirect(`${siteUrl}/?error=token_exchange_failed`);
+    return NextResponse.redirect(`${origin}/?error=token_exchange_failed`);
   }
 
   // 2. Fetch Google profile info
@@ -74,11 +75,11 @@ export async function GET(request: NextRequest) {
 
   if (dbError) {
     console.error('Failed to store Google integration in DB:', dbError);
-    return NextResponse.redirect(`${siteUrl}/?error=db_error`);
+    return NextResponse.redirect(`${origin}/?error=db_error`);
   }
 
   const destination = stateData.returnUrl.startsWith('/')
-    ? `${siteUrl}${stateData.returnUrl}`
+    ? `${origin}${stateData.returnUrl}`
     : stateData.returnUrl;
 
   const url = new URL(destination);
