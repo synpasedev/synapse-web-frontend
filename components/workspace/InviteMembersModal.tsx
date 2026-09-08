@@ -178,18 +178,28 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
       });
 
       const data = await res.json();
-      if (!res.ok) {
+      if (!res.ok || !data.success || data.summary?.sent === 0) {
         if (data.missingConfig) {
           setEmailFeedback({
             type: 'info',
             message: 'Nodemailer SMTP not configured on server.',
             details:
-              'Set SMTP_USER and SMTP_PASS (or Gmail App Password) in .env.local to enable automatic delivery. You can still send via your email client or copy the message.',
+              'Set SMTP_USER and SMTP_PASS (or Gmail App Password) in your .env to enable automatic delivery. You can still send via your email client or copy the message.',
           });
         } else {
+          const errorMsg =
+            data.error ||
+            data.results?.find((r: any) => !r.success)?.error ||
+            'Failed to send direct email via Nodemailer.';
+          const isResendSandbox =
+            errorMsg.includes('resend.com/domains') || errorMsg.includes('testing emails');
+
           setEmailFeedback({
             type: 'error',
-            message: data.error || 'Failed to send direct email via Nodemailer.',
+            message: errorMsg,
+            details: isResendSandbox
+              ? 'Notice: Resend testing mode only allows sending to your registered account email (helpcare.synapse@gmail.com) until you verify a custom domain at resend.com/domains. To send to any recipient email without domain verification, use Gmail with an App Password in your .env!'
+              : undefined,
           });
         }
         return false;

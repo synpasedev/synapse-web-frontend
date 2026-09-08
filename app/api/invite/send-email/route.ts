@@ -51,8 +51,25 @@ export async function POST(req: NextRequest) {
     const sentCount = results.filter((r) => r.success).length;
     const failedCount = results.filter((r) => !r.success).length;
 
+    if (sentCount === 0) {
+      const firstError = results.find((r) => !r.success)?.error || 'Failed to deliver email via SMTP.';
+      return NextResponse.json(
+        {
+          error: firstError,
+          success: false,
+          results,
+          summary: {
+            total: emailList.length,
+            sent: 0,
+            failed: failedCount,
+          },
+        },
+        { status: 400 }
+      );
+    }
+
     return NextResponse.json({
-      success: sentCount > 0,
+      success: true,
       results,
       summary: {
         total: emailList.length,
@@ -60,6 +77,7 @@ export async function POST(req: NextRequest) {
         failed: failedCount,
       },
     });
+
   } catch (error: any) {
     console.error('Error in send-invite API route:', error);
     return NextResponse.json(
