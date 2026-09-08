@@ -2,16 +2,22 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getRequestOrigin } from '@/lib/url';
 import { DEFAULT_WORKSPACE_ID } from '@/lib/dexie/seed';
+import { cookies } from 'next/headers';
 
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url);
   const origin = getRequestOrigin(request);
 
-  // Extract query parameters (support both 'next' and 'redirect' keys)
+  // Read stored cookie if query param wasn't in the clean callback URL
+  const cookieStore = await cookies();
+  const cookieRedirect = cookieStore.get('synapse_redirect')?.value;
+
+  // Extract query parameters (support both 'next' and 'redirect' keys, then cookie)
   const code = requestUrl.searchParams.get('code');
   const nextParam =
     requestUrl.searchParams.get('next') ||
     requestUrl.searchParams.get('redirect') ||
+    (cookieRedirect ? decodeURIComponent(cookieRedirect) : null) ||
     `/${DEFAULT_WORKSPACE_ID}/notes`;
   const error = requestUrl.searchParams.get('error');
   const errorDescription = requestUrl.searchParams.get('error_description');

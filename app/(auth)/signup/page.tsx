@@ -82,9 +82,19 @@ function SignupForm() {
 
     try {
       const supabase = createBrowserClient();
-      const callbackUrl = getURL(
-        `/api/auth/callback?next=${encodeURIComponent(redirectUrl)}&redirect=${encodeURIComponent(redirectUrl)}`
-      );
+
+      // Store intended destination in cookie so callback can retrieve it
+      // without needing query strings in redirectTo (which break Supabase OAuth redirect matching)
+      if (typeof document !== 'undefined') {
+        document.cookie = `synapse_redirect=${encodeURIComponent(redirectUrl)}; path=/; max-age=600; SameSite=Lax`;
+        try {
+          sessionStorage.setItem('synapse_redirect', redirectUrl);
+        } catch {}
+      }
+
+      // Clean callback URL with NO query strings so it exactly matches Supabase Redirect URLs
+      const callbackUrl = getURL('/api/auth/callback');
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
