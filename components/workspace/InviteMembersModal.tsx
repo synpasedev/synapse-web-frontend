@@ -16,6 +16,7 @@ import {
 } from '@/hooks/use-workspace';
 import { WorkspaceRole, WorkspaceMember } from '@/types/domain';
 import { useAuth } from '@/hooks/use-auth';
+import { getPublicSiteUrl } from '@/lib/url';
 import {
   X,
   Users,
@@ -52,10 +53,15 @@ function getRecipientName(email: string): string {
 
 function buildEmailTemplate(recipientEmail: string, inviteUrl?: string): string {
   const username = getRecipientName(recipientEmail);
+  const siteUrl = getPublicSiteUrl();
+  const safeInviteUrl = inviteUrl
+    ? (inviteUrl.includes('localhost') ? inviteUrl.replace(/^https?:\/\/localhost(:\d+)?/, siteUrl) : inviteUrl)
+    : undefined;
+
   return `Hey ${username}, hope you’re doing well!
 I am Subhadeep and I’ve been working on an application called Synapse — a productivity and knowledge-management platform with combined features of tools like Notion, Obsidian, Evernote, and Trello, with a few additional features of its own.
 It’s now live, and I’d love for you to have a look:
-Synapse: https://synapse-web-frontend-vercel.vercel.app/login${inviteUrl ? `\nWorkspace Invite: ${inviteUrl}` : ''}
+Synapse: ${siteUrl}/login${safeInviteUrl ? `\nWorkspace Invite: ${safeInviteUrl}` : ''}
 Feel free to explore it whenever you get a chance. And if you come across any bugs, things that could be improved, or simply have an idea that could make the product better, please feel free to reach out.
 Would love to hear what you think!
 Thanks,
@@ -285,8 +291,7 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
 
 
   const handleCopyLink = (code: string) => {
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const fullUrl = `${origin}/invite/${code}`;
+    const fullUrl = getPublicSiteUrl(`/invite/${code}`);
     navigator.clipboard.writeText(fullUrl);
     setCopiedCode(code);
     setTimeout(() => {
@@ -295,8 +300,7 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
   };
 
   const handleSendEmailApp = (targetEmail: string, code?: string) => {
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const inviteUrl = code ? `${origin}/invite/${code}` : undefined;
+    const inviteUrl = code ? getPublicSiteUrl(`/invite/${code}`) : undefined;
     const body = buildEmailTemplate(targetEmail, inviteUrl);
     const subject = 'Invitation to explore Synapse';
     const mailto = `mailto:${encodeURIComponent(targetEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
@@ -304,8 +308,7 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
   };
 
   const handleCopyTemplateText = (targetEmail: string, code?: string) => {
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const inviteUrl = code ? `${origin}/invite/${code}` : undefined;
+    const inviteUrl = code ? getPublicSiteUrl(`/invite/${code}`) : undefined;
     const body = buildEmailTemplate(targetEmail, inviteUrl);
     navigator.clipboard.writeText(body);
     setCopiedTemplate(true);
@@ -691,7 +694,7 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
                     {buildEmailTemplate(
                       activeTemplate.email,
                       activeTemplate.code
-                        ? `${typeof window !== 'undefined' ? window.location.origin : ''}/invite/${activeTemplate.code}`
+                        ? getPublicSiteUrl(`/invite/${activeTemplate.code}`)
                         : undefined
                     )}
                   </div>
@@ -772,7 +775,7 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
                 <div className="flex items-center gap-2 p-2 bg-secondary/50 border border-border/60 rounded-xl">
                   <div className="flex-1 font-mono text-[11px] text-muted-foreground truncate px-1">
                     {latestInvite
-                      ? `${typeof window !== 'undefined' ? window.location.origin : ''}/invite/${latestInvite.invite_code}`
+                      ? getPublicSiteUrl(`/invite/${latestInvite.invite_code}`)
                       : 'Generate an invite link to share with your team'}
                   </div>
 

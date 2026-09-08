@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import { getPublicSiteUrl } from '@/lib/url';
 
 export interface SendInviteEmailParams {
   to: string | string[];
@@ -59,9 +60,10 @@ export function getRecipientName(email: string): string {
 
 export function generateInviteEmailContent(email: string, inviteCode?: string, workspaceName?: string) {
   const username = getRecipientName(email);
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://synapse-web-frontend-vercel.vercel.app';
+  const siteUrl = getPublicSiteUrl();
   const loginUrl = `${siteUrl}/login`;
   const inviteUrl = inviteCode ? `${siteUrl}/invite/${inviteCode}` : loginUrl;
+
 
   const plainText = `Hey ${username}, hope you’re doing well!
 I am Subhadeep and I’ve been working on an application called Synapse — a productivity and knowledge-management platform with combined features of tools like Notion, Obsidian, Evernote, and Trello, with a few additional features of its own.

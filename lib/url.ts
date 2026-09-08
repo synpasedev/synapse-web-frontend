@@ -69,3 +69,44 @@ export function getRequestOrigin(request: Request): string {
 
   return getURL();
 }
+
+/**
+ * Canonical public URL for sharing notes, whiteboards, canvases, and workspace invites.
+ * CRITICAL: Never returns 'localhost' or '127.0.0.1' because invitees/recipients cannot
+ * connect to the local developer machine.
+ */
+export function getPublicSiteUrl(path: string = ''): string {
+  let baseUrl = '';
+
+  // 1. If in browser and on a real non-localhost domain (e.g. *.vercel.app or custom domain)
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    const origin = window.location.origin.replace(/\/+$/, '');
+    if (!origin.includes('localhost') && !origin.includes('127.0.0.1')) {
+      baseUrl = origin;
+    }
+  }
+
+  // 2. Environment variables (ignoring localhost)
+  if (!baseUrl) {
+    if (process.env.NEXT_PUBLIC_SITE_URL && !process.env.NEXT_PUBLIC_SITE_URL.includes('localhost')) {
+      baseUrl = process.env.NEXT_PUBLIC_SITE_URL;
+    } else if (process.env.NEXT_PUBLIC_APP_URL && !process.env.NEXT_PUBLIC_APP_URL.includes('localhost')) {
+      baseUrl = process.env.NEXT_PUBLIC_APP_URL;
+    } else if (process.env.NEXT_PUBLIC_VERCEL_URL) {
+      baseUrl = `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`;
+    } else if (process.env.VERCEL_URL) {
+      baseUrl = `https://${process.env.VERCEL_URL}`;
+    } else {
+      // 3. Guaranteed live production domain
+      baseUrl = 'https://synapse-web-frontend-vercel.vercel.app';
+    }
+  }
+
+  baseUrl = baseUrl.replace(/\/+$/, '');
+  if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+    baseUrl = `https://${baseUrl}`;
+  }
+
+  const cleanPath = path ? (path.startsWith('/') ? path : `/${path}`) : '';
+  return `${baseUrl}${cleanPath}`;
+}

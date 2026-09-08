@@ -14,6 +14,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { localDb } from '@/lib/dexie/db';
+import { getPublicSiteUrl } from '@/lib/url';
 
 interface ShareModalProps {
   isOpen: boolean;
@@ -34,21 +35,22 @@ export const ShareModal: React.FC<ShareModalProps> = ({
   resourceTitle,
   resourceIcon,
 }) => {
-  const [copied, setCopied] = useState(false);
   const [publishState, setPublishState] = useState<PublishState>('idle');
   const [publishError, setPublishError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
-  // Auto-publish as soon as modal opens
   useEffect(() => {
-    if (isOpen && publishState === 'idle') {
+    if (isOpen) {
+      setPublishState('idle');
+      setPublishError(null);
+      setCopied(false);
       publishToServer();
     }
   }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  const shareUrl = `${origin}/share/${resourceType}/${resourceId}`;
+  const shareUrl = getPublicSiteUrl(`/share/${resourceType}/${resourceId}`);
 
   async function publishToServer() {
     try {
