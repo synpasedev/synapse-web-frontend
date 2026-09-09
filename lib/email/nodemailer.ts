@@ -24,12 +24,13 @@ export function getMailTransporter() {
   const port = parseInt(process.env.SMTP_PORT || process.env.EMAIL_PORT || '587', 10);
   const secure = process.env.SMTP_SECURE === 'true' || port === 465;
   const user = process.env.SMTP_USER || process.env.GMAIL_USER || process.env.EMAIL_USER;
-  const pass = process.env.SMTP_PASS || process.env.GMAIL_APP_PASSWORD || process.env.EMAIL_PASS;
+  const rawPass = process.env.SMTP_PASS || process.env.GMAIL_APP_PASSWORD || process.env.EMAIL_PASS;
+  const pass = rawPass?.trim().replace(/\s+/g, '');
   const service = process.env.SMTP_SERVICE || (!host && user?.endsWith('@gmail.com') ? 'gmail' : undefined);
 
   if (!user || !pass) {
     throw new Error(
-      'SMTP credentials missing. Please set SMTP_USER and SMTP_PASS (or GMAIL_USER and GMAIL_APP_PASSWORD) in your .env.local or environment variables.'
+      'SMTP credentials missing. Please set SMTP_USER and SMTP_PASS (or GMAIL_USER and GMAIL_APP_PASSWORD) in your environment variables.'
     );
   }
 
@@ -46,6 +47,7 @@ export function getMailTransporter() {
     secure,
     auth: { user, pass },
   });
+
 }
 
 export function getRecipientName(email: string): string {
