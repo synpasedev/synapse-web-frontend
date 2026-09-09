@@ -13,6 +13,7 @@ import {
   useRemoveMember,
   useRemoveMultipleMembers,
   useRevokeInvite,
+  useClearWorkspaceInvites,
 } from '@/hooks/use-workspace';
 import { WorkspaceRole, WorkspaceMember } from '@/types/domain';
 import { useAuth } from '@/hooks/use-auth';
@@ -82,6 +83,7 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
   const { mutateAsync: removeMember } = useRemoveMember();
   const { mutateAsync: removeMultipleMembers, isPending: isRemovingBulk } = useRemoveMultipleMembers();
   const { mutateAsync: revokeInvite } = useRevokeInvite();
+  const { mutateAsync: clearWorkspaceInvites, isPending: isClearingInvites } = useClearWorkspaceInvites();
 
   const isInviting = isInvitingSingle || isInvitingBatch;
 
@@ -486,7 +488,7 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
                         <Mail className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
                         <textarea
                           rows={parsedEmails.length > 1 || emailInput.includes('\n') ? 3 : 1}
-                          placeholder="Enter email or multiple emails separated by commas, spaces, or lines..."
+                          placeholder="Enter email or multiple emails separated by commas..."
                           value={emailInput}
                           onChange={(e) => {
                             setEmailInput(e.target.value);
@@ -831,8 +833,24 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
               {/* Active Invite Links */}
               {invites.length > 0 && (
                 <div className="pt-4 border-t border-border/40">
-                  <div className="text-xs font-semibold text-foreground uppercase tracking-wider mb-2.5">
-                    Active Invite Links ({invites.length})
+                  <div className="flex items-center justify-between mb-2.5">
+                    <div className="text-xs font-semibold text-foreground uppercase tracking-wider">
+                      Active Invite Links ({invites.length})
+                    </div>
+                    <button
+                      type="button"
+                      disabled={isClearingInvites}
+                      onClick={async () => {
+                        if (confirm('Clear all active invite links for this workspace?')) {
+                          await clearWorkspaceInvites({ workspaceId });
+                        }
+                      }}
+                      className="text-[11px] text-rose-400/90 hover:text-rose-400 hover:bg-rose-500/10 px-2 py-0.5 rounded-lg transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                      title="Clear all active invite rows for this workspace"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      <span>Clear all</span>
+                    </button>
                   </div>
                   <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                     {invites.map((inv) => (

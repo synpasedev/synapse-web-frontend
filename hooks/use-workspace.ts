@@ -116,7 +116,24 @@ export function useWorkspaceMembers(workspaceId: string) {
         }
       }
 
-      return members;
+      // Auto-deduplicate non-owner members by email
+      const seenMemberEmails = new Set<string>();
+      const duplicateMemberIds: string[] = [];
+      const uniqueMembers: WorkspaceMember[] = [];
+      for (const m of members) {
+        const key = m.email ? m.email.trim().toLowerCase() : m.id;
+        if (m.role !== 'owner' && seenMemberEmails.has(key)) {
+          duplicateMemberIds.push(m.id);
+        } else {
+          seenMemberEmails.add(key);
+          uniqueMembers.push(m);
+        }
+      }
+      if (duplicateMemberIds.length > 0) {
+        await localDb.workspace_members.bulkDelete(duplicateMemberIds);
+      }
+
+      return uniqueMembers;
     },
     enabled: Boolean(workspaceId),
   });
@@ -132,7 +149,33 @@ export function useWorkspaceInvites(workspaceId: string) {
         .where('workspace_id')
         .equals(workspaceId)
         .toArray();
-      return invites;
+
+      // Automatically deduplicate invites by email & invite_code
+      // Keep the freshest invite for each email and delete older duplicate rows from IndexedDB
+      const seen = new Set<string>();
+      const toDelete: string[] = [];
+      const uniqueInvites: WorkspaceInvite[] = [];
+
+      // Sort newest first
+      const sorted = [...invites].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+
+      for (const inv of sorted) {
+        const key = inv.email ? inv.email.trim().toLowerCase() : inv.invite_code;
+        if (seen.has(key)) {
+          toDelete.push(inv.id);
+        } else {
+          seen.add(key);
+          uniqueInvites.push(inv);
+        }
+      }
+
+      if (toDelete.length > 0) {
+        await localDb.workspace_invites.bulkDelete(toDelete);
+      }
+
+      return uniqueInvites;
     },
     enabled: Boolean(workspaceId),
   });
@@ -533,6 +576,52 @@ export function useRevokeInvite() {
     }) => {
       await localDb.workspace_invites.delete(inviteId);
       return { inviteId };
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['workspace_invites', variables.workspaceId] });
+    },
+  });
+}
+
+export function useClearWorkspaceInvites() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      workspaceId,
+      onlyDuplicates = false,
+    }: {
+      workspaceId: string;
+      onlyDuplicates?: boolean;
+    }) => {
+      if (!onlyDuplicates) {
+        await localDb.workspace_invites
+          .where('workspace_id')
+          .equals(workspaceId)
+          .delete();
+      } else {
+        const invites = await localDb.workspace_invites
+          .where('workspace_id')
+          .equals(workspaceId)
+          .toArray();
+        const seen = new Set<string>();
+        const toDelete: string[] = [];
+        const sorted = [...invites].sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+        for (const inv of sorted) {
+          const key = inv.email ? inv.email.trim().toLowerCase() : inv.invite_code;
+          if (seen.has(key)) {
+            toDelete.push(inv.id);
+          } else {
+            seen.add(key);
+          }
+        }
+        if (toDelete.length > 0) {
+          await localDb.workspace_invites.bulkDelete(toDelete);
+        }
+      }
+      return { workspaceId };
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['workspace_invites', variables.workspaceId] });

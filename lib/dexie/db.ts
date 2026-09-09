@@ -35,3 +35,18 @@ export class SynapseDexieDB extends Dexie {
 }
 
 export const localDb = new SynapseDexieDB();
+
+if (typeof window !== 'undefined') {
+  (window as any).__localDb = localDb;
+  (window as any).clearWorkspaceInvites = async (workspaceId?: string) => {
+    if (workspaceId) {
+      const count = await localDb.workspace_invites.where('workspace_id').equals(workspaceId).count();
+      await localDb.workspace_invites.where('workspace_id').equals(workspaceId).delete();
+      console.log(`[Synapse] Cleared ${count} invite(s) for workspace ${workspaceId}`);
+    } else {
+      const count = await localDb.workspace_invites.count();
+      await localDb.workspace_invites.clear();
+      console.log(`[Synapse] Cleared all ${count} invite(s) from local database`);
+    }
+  };
+}
