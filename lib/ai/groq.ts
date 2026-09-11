@@ -13,7 +13,7 @@ export class GroqProvider implements AIProvider {
     this.model = model;
   }
 
-  private async chat(systemPrompt: string, userPrompt: string): Promise<string> {
+  private async callGroq(systemPrompt: string, userPrompt: string): Promise<string> {
     if (!this.apiKey) throw new Error('Groq API Key not configured in environment.');
 
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -42,15 +42,30 @@ export class GroqProvider implements AIProvider {
   }
 
   async summarize(text: string): Promise<string> {
-    return this.chat('You are an expert workspace assistant. Summarize the text concisely with key takeaways and action items in markdown.', text);
+    return this.callGroq('You are an expert workspace assistant. Summarize the text concisely with key takeaways and action items in markdown.', text);
   }
 
   async expand(bullet: string): Promise<string> {
-    return this.chat('Expand the provided bullet point into a well-crafted, informative paragraph.', bullet);
+    return this.callGroq('Expand the provided bullet point into a well-crafted, informative paragraph.', bullet);
+  }
+
+  async improve(text: string): Promise<string> {
+    return this.callGroq('You are a professional editor. Improve the following text by fixing grammar, spelling, and phrasing while keeping the exact meaning. Return only the improved text.', text);
+  }
+
+  async actionItems(text: string): Promise<string> {
+    return this.callGroq('You are an assistant. Extract all action items from the text into a clean markdown checklist (- [ ] item).', text);
+  }
+
+  async chat(prompt: string, context?: string): Promise<string> {
+    const sys = context
+      ? `You are an AI workspace copilot. Use this context to answer:\n\n${context}`
+      : 'You are an AI workspace copilot.';
+    return this.callGroq(sys, prompt);
   }
 
   async generateTemplate(prompt: string): Promise<{ title: string; content: string }> {
-    const content = await this.chat('Generate a clean, reusable document template in markdown for the following request. Include variable placeholders like {{date}} and {{user}}.', prompt);
+    const content = await this.callGroq('Generate a clean, reusable document template in markdown for the following request. Include variable placeholders like {{date}} and {{user}}.', prompt);
     return {
       title: prompt.slice(0, 40),
       content,

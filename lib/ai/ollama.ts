@@ -37,6 +37,19 @@ export class OllamaProvider implements AIProvider {
     return this.generate('Expand this bullet point into a rich, structured paragraph for documentation.', bullet);
   }
 
+  async improve(text: string): Promise<string> {
+    return this.generate('Fix grammar, improve tone and clarity of this text while preserving meaning. Output only improved text.', text);
+  }
+
+  async actionItems(text: string): Promise<string> {
+    return this.generate('Extract all action items from this text into a clean markdown checklist (- [ ] task).', text);
+  }
+
+  async chat(prompt: string, context?: string): Promise<string> {
+    const sys = context ? `Context:\n${context}\n\nAssistant:` : 'You are an AI workspace copilot.';
+    return this.generate(sys, prompt);
+  }
+
   async generateTemplate(prompt: string): Promise<{ title: string; content: string }> {
     const res = await this.generate('Create a clean markdown document template with headings and bullet points for this topic.', prompt);
     return {

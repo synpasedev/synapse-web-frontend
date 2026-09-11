@@ -119,17 +119,18 @@ export default function SettingsPage({
         {/* AI Provider Config */}
         <div className="p-6 rounded-2xl border border-border/80 bg-card/40 backdrop-blur-md shadow-xl">
           <div className="flex items-center gap-2.5 mb-4">
-            <Sparkles className="w-5 h-5 text-purple-400" />
-            <h2 className="text-base font-bold text-foreground">AI Assistant Engine</h2>
+            <Sparkles className="w-5 h-5 text-indigo-400" />
+            <h2 className="text-base font-bold text-foreground">AI Assistant Engine (Google Gemini)</h2>
           </div>
 
           <p className="text-xs text-muted-foreground leading-relaxed mb-4">
-            Synapse supports local Ollama endpoints (100% private at $0) and ultra-fast cloud LLMs like Groq.
+            Synapse is powered by <strong>Google Gemini (1.5 Flash / 2.0 Flash)</strong> for note summarization, writing improvements, action items extraction, and freeform queries. You can get a free key from <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">Google AI Studio</a> with no credit card required.
           </p>
 
           <div className="p-3.5 rounded-xl bg-secondary/40 border border-border/40 text-xs text-muted-foreground space-y-1 font-mono">
-            <div>PROVIDER = {process.env.AI_PROVIDER || 'Groq Cloud / Local Fallback Engine'}</div>
-            <div>ENDPOINT = /api/ai/summarize, /api/ai/expand, /api/ai/generate-template</div>
+            <div>PROVIDER = {process.env.GEMINI_API_KEY ? 'Google Gemini (Active)' : (process.env.AI_PROVIDER || 'Google Gemini / Local Built-in Fallback')}</div>
+            <div>ENV_VAR = GEMINI_API_KEY (or GOOGLE_API_KEY)</div>
+            <div>ENDPOINTS = /api/ai/summarize, /api/ai/improve, /api/ai/action-items, /api/ai/expand, /api/ai/chat</div>
           </div>
         </div>
       </div>
