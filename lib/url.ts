@@ -16,7 +16,7 @@ export function getURL(path: string = ''): string {
   }
 
   // 2. Server context: Check environment variables
-  const vercelUrl = process.env.VERCEL_URL || process.env.NEXT_PUBLIC_VERCEL_URL;
+  const vercelProdUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL;
   let url = '';
 
   // If NEXT_PUBLIC_SITE_URL is explicitly configured and not localhost, use it
@@ -24,19 +24,20 @@ export function getURL(path: string = ''): string {
     url = process.env.NEXT_PUBLIC_SITE_URL;
   } else if (process.env.NEXT_PUBLIC_APP_URL && !process.env.NEXT_PUBLIC_APP_URL.includes('localhost')) {
     url = process.env.NEXT_PUBLIC_APP_URL;
-  } else if (vercelUrl) {
-    url = `https://${vercelUrl}`;
+  } else if (vercelProdUrl) {
+    url = `https://${vercelProdUrl}`;
   } else {
-    url =
-      process.env.NEXT_PUBLIC_SITE_URL ||
-      process.env.NEXT_PUBLIC_APP_URL ||
-      process.env.FRONTEND_URL ||
-      'http://localhost:3000';
+    url = 'https://synapse-web-frontend-vercel.vercel.app';
   }
 
   // Ensure url has a protocol
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
     url = `https://${url}`;
+  }
+
+  // Sanitize: never use unassigned "synapse-web.vercel.app" without "-frontend-vercel"
+  if (url.includes('synapse-web.vercel.app')) {
+    url = url.replace('synapse-web.vercel.app', 'synapse-web-frontend-vercel.vercel.app');
   }
 
   // Remove trailing slashes
@@ -72,8 +73,7 @@ export function getRequestOrigin(request: Request): string {
 
 /**
  * Canonical public URL for sharing notes, whiteboards, canvases, and workspace invites.
- * CRITICAL: Never returns 'localhost' or '127.0.0.1' because invitees/recipients cannot
- * connect to the local developer machine.
+ * Guaranteed to use the live active domain (synapse-web-frontend-vercel.vercel.app).
  */
 export function getPublicSiteUrl(path: string = ''): string {
   let baseUrl = '';
@@ -88,18 +88,20 @@ export function getPublicSiteUrl(path: string = ''): string {
 
   // 2. Environment variables (ignoring localhost)
   if (!baseUrl) {
-    if (process.env.NEXT_PUBLIC_SITE_URL && !process.env.NEXT_PUBLIC_SITE_URL.includes('localhost')) {
-      baseUrl = process.env.NEXT_PUBLIC_SITE_URL;
-    } else if (process.env.NEXT_PUBLIC_APP_URL && !process.env.NEXT_PUBLIC_APP_URL.includes('localhost')) {
-      baseUrl = process.env.NEXT_PUBLIC_APP_URL;
-    } else if (process.env.NEXT_PUBLIC_VERCEL_URL) {
-      baseUrl = `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`;
-    } else if (process.env.VERCEL_URL) {
-      baseUrl = `https://${process.env.VERCEL_URL}`;
+    const configuredUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL;
+    if (configuredUrl && !configuredUrl.includes('localhost')) {
+      baseUrl = configuredUrl;
+    } else if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+      baseUrl = `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
     } else {
-      // 3. Guaranteed live production domain
+      // Guaranteed live production domain
       baseUrl = 'https://synapse-web-frontend-vercel.vercel.app';
     }
+  }
+
+  // Sanitize: never use unassigned "synapse-web.vercel.app" without "-frontend-vercel"
+  if (baseUrl.includes('synapse-web.vercel.app')) {
+    baseUrl = baseUrl.replace('synapse-web.vercel.app', 'synapse-web-frontend-vercel.vercel.app');
   }
 
   baseUrl = baseUrl.replace(/\/+$/, '');
