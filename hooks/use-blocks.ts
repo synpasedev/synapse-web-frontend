@@ -132,9 +132,10 @@ export function useMutateBlocks(noteId: string) {
       queryClient.setQueryData<Block[]>(['blocks', noteId], newBlocks);
       return { previousBlocks };
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['blocks', noteId] });
-      queryClient.invalidateQueries({ queryKey: ['note', noteId] });
+    onSuccess: (_data, newBlocks) => {
+      if (newBlocks) {
+        queryClient.setQueryData(['blocks', noteId], newBlocks);
+      }
     },
     onError: (_err, _newBlocks, context) => {
       if (context?.previousBlocks) {

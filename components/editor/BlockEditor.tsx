@@ -66,7 +66,7 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
       const newDoc = blocksToTipTapDoc(initialBlocks);
       const currentDoc = editorRef.current.getJSON();
       if (JSON.stringify(newDoc) !== JSON.stringify(currentDoc)) {
-        editorRef.current.commands.setContent(newDoc, false);
+        editorRef.current.commands.setContent(newDoc, { emitUpdate: false });
       }
     }
   }, [initialBlocks]);

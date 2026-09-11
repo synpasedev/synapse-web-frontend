@@ -21,7 +21,6 @@ export function blocksToTipTapDoc(blocks: Block[]): any {
       content: [
         {
           type: 'paragraph',
-          attrs: { blockId: crypto.randomUUID() },
         },
       ],
     };
@@ -30,7 +29,7 @@ export function blocksToTipTapDoc(blocks: Block[]): any {
   const docContent = blocks.map((b) => {
     const textContent = extractSafeText(b.content);
     const textNodes = textContent ? parseInlineMarkdownToNodes(textContent) : [];
-    const blockAttrs = { blockId: b.id, ...(b.properties || {}) };
+    const blockAttrs = b.properties && Object.keys(b.properties).length ? { ...b.properties } : undefined;
 
     // 1. Headings
     if (b.type.startsWith('heading_')) {
@@ -38,7 +37,7 @@ export function blocksToTipTapDoc(blocks: Block[]): any {
       const parsedNodes = b.content?.nodes ? enrichNodesWithMarkdown(b.content.nodes) : null;
       return {
         type: 'heading',
-        attrs: { ...blockAttrs, level },
+        attrs: { ...(blockAttrs || {}), level },
         content: parsedNodes || (textNodes.length ? textNodes : [{ type: 'text', text: ' ' }]),
       };
     }
@@ -223,7 +222,7 @@ export function blocksToTipTapDoc(blocks: Block[]): any {
     const parsedNodes = b.content?.nodes ? enrichNodesWithMarkdown(b.content.nodes) : null;
     return {
       type: 'paragraph',
-      attrs: blockAttrs,
+      ...(blockAttrs ? { attrs: blockAttrs } : {}),
       content: parsedNodes || (textNodes.length ? textNodes : undefined),
     };
   });
