@@ -143,6 +143,49 @@ h3 {
   color: var(--heading-3);
 }
 
+.ProseMirror h4 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-top: 0.95rem;
+  margin-bottom: 0.3rem;
+  color: var(--heading-3);
+}
+
+.ProseMirror h5,
+.ProseMirror h6 {
+  font-size: 0.925rem;
+  font-weight: 600;
+  margin-top: 0.8rem;
+  margin-bottom: 0.25rem;
+  color: var(--muted-foreground);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.ProseMirror strong {
+  font-weight: 650;
+  color: var(--foreground);
+}
+
+.ProseMirror em {
+  font-style: italic;
+}
+
+.ProseMirror s,
+.ProseMirror del {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.ProseMirror code:not(pre code) {
+  background: rgba(120, 135, 175, 0.15);
+  color: #c4b5fd;
+  padding: 0.15rem 0.35rem;
+  border-radius: 0.25rem;
+  font-size: 0.88em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
 .ProseMirror ul:not([data-type="taskList"]) {
   list-style-type: disc;
   padding-left: 1.5rem;

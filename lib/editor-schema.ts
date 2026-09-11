@@ -1,4 +1,5 @@
 import { Block, BlockType, Note } from '@/types/domain';
+import { parseInlineMarkdownToNodes, enrichNodesWithMarkdown } from '@/lib/markdown';
 
 export function extractSafeText(content: any): string {
   if (!content) return '';
@@ -28,16 +29,17 @@ export function blocksToTipTapDoc(blocks: Block[]): any {
 
   const docContent = blocks.map((b) => {
     const textContent = extractSafeText(b.content);
-    const textNode = textContent ? [{ type: 'text', text: textContent }] : [];
+    const textNodes = textContent ? parseInlineMarkdownToNodes(textContent) : [];
     const blockAttrs = { blockId: b.id, ...(b.properties || {}) };
 
     // 1. Headings
     if (b.type.startsWith('heading_')) {
-      const level = parseInt(b.type.replace('heading_', ''), 10) || 1;
+      const level = b.properties?.level || parseInt(b.type.replace('heading_', ''), 10) || 1;
+      const parsedNodes = b.content?.nodes ? enrichNodesWithMarkdown(b.content.nodes) : null;
       return {
         type: 'heading',
         attrs: { ...blockAttrs, level },
-        content: b.content?.nodes || (textContent ? textNode : [{ type: 'text', text: ' ' }]),
+        content: parsedNodes || (textNodes.length ? textNodes : [{ type: 'text', text: ' ' }]),
       };
     }
 
@@ -47,7 +49,7 @@ export function blocksToTipTapDoc(blocks: Block[]): any {
         return {
           type: 'bulletList',
           attrs: blockAttrs,
-          content: b.content.nodes,
+          content: enrichNodesWithMarkdown(b.content.nodes),
         };
       }
       return {
@@ -59,7 +61,7 @@ export function blocksToTipTapDoc(blocks: Block[]): any {
             content: [
               {
                 type: 'paragraph',
-                content: textContent ? textNode : [{ type: 'text', text: 'List item' }],
+                content: textNodes.length ? textNodes : [{ type: 'text', text: 'List item' }],
               },
             ],
           },
@@ -73,7 +75,7 @@ export function blocksToTipTapDoc(blocks: Block[]): any {
         return {
           type: 'orderedList',
           attrs: blockAttrs,
-          content: b.content.nodes,
+          content: enrichNodesWithMarkdown(b.content.nodes),
         };
       }
       return {
@@ -85,7 +87,7 @@ export function blocksToTipTapDoc(blocks: Block[]): any {
             content: [
               {
                 type: 'paragraph',
-                content: textContent ? textNode : [{ type: 'text', text: '1. List item' }],
+                content: textNodes.length ? textNodes : [{ type: 'text', text: '1. List item' }],
               },
             ],
           },
@@ -111,7 +113,7 @@ export function blocksToTipTapDoc(blocks: Block[]): any {
         return {
           type: 'taskList',
           attrs: blockAttrs,
-          content: b.content.nodes,
+          content: enrichNodesWithMarkdown(b.content.nodes),
         };
       }
 
@@ -128,7 +130,7 @@ export function blocksToTipTapDoc(blocks: Block[]): any {
             content: [
               {
                 type: 'paragraph',
-                content: cleanText ? [{ type: 'text', text: cleanText }] : [],
+                content: cleanText ? parseInlineMarkdownToNodes(cleanText) : [],
               },
             ],
           },
@@ -144,7 +146,7 @@ export function blocksToTipTapDoc(blocks: Block[]): any {
         content: [
           {
             type: 'paragraph',
-            content: b.content?.nodes || textNode,
+            content: b.content?.nodes ? enrichNodesWithMarkdown(b.content.nodes) : textNodes,
           },
         ],
       };
@@ -155,7 +157,7 @@ export function blocksToTipTapDoc(blocks: Block[]): any {
       return {
         type: 'codeBlock',
         attrs: { ...blockAttrs, language: b.properties?.language || 'typescript' },
-        content: textContent ? textNode : [{ type: 'text', text: '// Code block' }],
+        content: textContent ? [{ type: 'text', text: textContent }] : [{ type: 'text', text: '// Code block' }],
       };
     }
 
@@ -167,7 +169,34 @@ export function blocksToTipTapDoc(blocks: Block[]): any {
       };
     }
 
-    // 8. Paragraph that starts with [] or [x]
+    // 8. Plain paragraph starting with Markdown Headings (# through ######)
+    const headingMatch = textContent.match(/^(#{1,6})\s+(.*)$/);
+    if (b.type === 'paragraph' && headingMatch) {
+      const level = Math.min(6, headingMatch[1].length);
+      const cleanHeading = headingMatch[2];
+      return {
+        type: 'heading',
+        attrs: { ...blockAttrs, level },
+        content: parseInlineMarkdownToNodes(cleanHeading),
+      };
+    }
+
+    // 9. Plain paragraph starting with Markdown Blockquote (> quote)
+    const quoteMatch = textContent.match(/^>\s*(.*)$/);
+    if (b.type === 'paragraph' && quoteMatch) {
+      return {
+        type: 'blockquote',
+        attrs: blockAttrs,
+        content: [
+          {
+            type: 'paragraph',
+            content: parseInlineMarkdownToNodes(quoteMatch[1]),
+          },
+        ],
+      };
+    }
+
+    // 10. Paragraph that starts with [] or [x]
     const taskMatch = textContent.match(/^\s*(?:[-*]\s+)?\[([ xX]?)\]\s*(.*)$/);
     if (taskMatch) {
       const isChecked = taskMatch[1]?.toLowerCase() === 'x';
@@ -182,7 +211,7 @@ export function blocksToTipTapDoc(blocks: Block[]): any {
             content: [
               {
                 type: 'paragraph',
-                content: cleanText ? [{ type: 'text', text: cleanText }] : [],
+                content: cleanText ? parseInlineMarkdownToNodes(cleanText) : [],
               },
             ],
           },
@@ -190,11 +219,12 @@ export function blocksToTipTapDoc(blocks: Block[]): any {
       };
     }
 
-    // 9. Default Paragraph
+    // 11. Default Paragraph (with enriched markdown formatting for bold, italic, code, etc.)
+    const parsedNodes = b.content?.nodes ? enrichNodesWithMarkdown(b.content.nodes) : null;
     return {
       type: 'paragraph',
       attrs: blockAttrs,
-      content: b.content?.nodes || (textContent ? textNode : undefined),
+      content: parsedNodes || (textNodes.length ? textNodes : undefined),
     };
   });
 

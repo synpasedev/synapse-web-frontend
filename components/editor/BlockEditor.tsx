@@ -20,6 +20,7 @@ import { useUpdateNote } from '@/hooks/use-notes';
 import { Block, Note } from '@/types/domain';
 import { extractLinksFromEditor } from '@/lib/editor-link-extractor';
 import { blocksToTipTapDoc, tipTapDocToBlocks } from '@/lib/editor-schema';
+import { markdownToHTML, isMarkdown } from '@/lib/markdown';
 import { GoogleDocSyncBadge } from '@/components/sync/GoogleDocSyncBadge';
 import { useGoogleSync } from '@/hooks/use-google-sync';
 import { ShareButton } from '@/components/share/ShareButton';
@@ -143,7 +144,7 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
       StarterKit.configure({
         codeBlock: false,
         heading: {
-          levels: [1, 2, 3],
+          levels: [1, 2, 3, 4, 5, 6],
         },
       }),
       TaskList,
@@ -167,6 +168,21 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
     editorProps: {
       attributes: {
         class: 'ProseMirror focus:outline-none text-foreground leading-relaxed',
+      },
+      handlePaste: (view, event) => {
+        const text = event.clipboardData?.getData('text/plain');
+        if (!text) return false;
+
+        if (isMarkdown(text)) {
+          event.preventDefault();
+          const html = markdownToHTML(text);
+          if (editorRef.current) {
+            editorRef.current.commands.insertContent(html);
+          }
+          return true;
+        }
+
+        return false;
       },
     },
   });
@@ -224,7 +240,9 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
 
   const handleInsertAIContent = useCallback(
     (content: string) => {
-      editor?.chain().focus().insertContent(`\n${content}\n`).run();
+      if (!editor) return;
+      const html = markdownToHTML(content);
+      editor.chain().focus().insertContent(html).run();
     },
     [editor]
   );
