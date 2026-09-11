@@ -61,8 +61,12 @@ export async function GET(
       }
     }
 
+    const { searchParams } = new URL(request.url);
+    const checkEmail = searchParams.get('email');
+    const isEvicted = checkEmail ? serverStore.isEvicted(workspaceId, checkEmail) : false;
+
     const members = Array.from(membersMap.values());
-    return NextResponse.json({ data: members, total: members.length });
+    return NextResponse.json({ data: members, total: members.length, isEvicted });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Failed to fetch members' }, { status: 500 });
   }

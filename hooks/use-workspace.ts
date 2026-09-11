@@ -96,43 +96,41 @@ export function useWorkspaceMembers(workspaceId: string) {
 
       // Fetch shared remote members from server / Supabase
       try {
-        const res = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/members`);
+        const currentUser = getCurrentUserEmailAndName();
+        const emailQuery =
+          currentUser.email &&
+          currentUser.email !== 'user@synapse.local' &&
+          currentUser.email !== 'guest@synapse.local'
+            ? `?email=${encodeURIComponent(currentUser.email.trim().toLowerCase())}`
+            : '';
+
+        const res = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/members${emailQuery}`);
         if (res.ok) {
           const json = await res.json();
           const remoteMembers: WorkspaceMember[] = json.data || [];
 
-          // 1. Eviction detection: If remote members exist and current user is missing and not owner
-          const currentUser = getCurrentUserEmailAndName();
-          if (
-            currentUser.email &&
-            currentUser.email !== 'user@synapse.local' &&
-            currentUser.email !== 'guest@synapse.local' &&
-            remoteMembers.length > 0
-          ) {
-            const isMemberRemotely = remoteMembers.some(
-              (m) => m.email?.trim().toLowerCase() === currentUser.email.trim().toLowerCase()
-            );
-            const ws = await localDb.workspaces.get(workspaceId);
-            const isLocalOwner = ws?.owner_id === currentUser.id;
-
-            if (!isMemberRemotely && !isLocalOwner) {
-              // Active user has been removed from this workspace! Purge local cache.
-              await localDb.transaction(
-                'rw',
-                [localDb.workspaces, localDb.workspace_members, localDb.notes, localDb.blocks],
-                async () => {
-                  await localDb.workspace_members.where('workspace_id').equals(workspaceId).delete();
-                  await localDb.workspaces.delete(workspaceId);
-                  await localDb.notes.where('workspace_id').equals(workspaceId).delete();
-                  await localDb.blocks.where('workspace_id').equals(workspaceId).delete();
-                }
-              );
-
-              if (typeof window !== 'undefined' && window.location.pathname.includes(workspaceId)) {
-                window.location.href = '/?evicted=true';
+          // 1. Eviction detection: ONLY trigger if server authoritatively confirms caller is on eviction denylist
+          if (json.isEvicted) {
+            await localDb.transaction(
+              'rw',
+              [localDb.workspaces, localDb.workspace_members, localDb.notes, localDb.blocks],
+              async () => {
+                await localDb.workspace_members.where('workspace_id').equals(workspaceId).delete();
+                await localDb.workspaces.delete(workspaceId);
+                await localDb.notes.where('workspace_id').equals(workspaceId).delete();
+                await localDb.blocks.where('workspace_id').equals(workspaceId).delete();
               }
-              return [];
+            );
+
+            if (typeof window !== 'undefined' && window.location.pathname.includes(workspaceId)) {
+              const remaining = await localDb.workspaces.toArray();
+              if (remaining.length > 0) {
+                window.location.href = `/${remaining[0].id}/notes?evicted=true`;
+              } else {
+                window.location.href = '/';
+              }
             }
+            return [];
           }
 
           // 2. Add or update remote members
