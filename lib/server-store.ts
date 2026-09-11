@@ -65,11 +65,19 @@ export interface SharedSnapshot {
   publisherName?: string;
 }
 
+export interface StoredWorkspaceEviction {
+  workspace_id: string;
+  email: string;
+  evicted_at: string;
+}
+
 declare global {
   var __synapse_notes: StoredNote[] | undefined;
   var __synapse_blocks: StoredBlock[] | undefined;
   var __synapse_databases: StoredDatabase[] | undefined;
   var __synapse_members: StoredWorkspaceMember[] | undefined;
+  var __synapse_evictions: StoredWorkspaceEviction[] | undefined;
+  var __synapse_deleted_workspaces: string[] | undefined;
   var __synapse_shares: Map<string, SharedSnapshot> | undefined;
 }
 
@@ -127,10 +135,19 @@ function writeJsonFile<T>(filename: string, data: T): void {
   const dir = ensureDataDir();
   if (!dir) return;
   const fp = path.join(dir, filename);
+  const tmpPath = path.join(dir, `${filename}.${Date.now()}.${Math.random().toString(36).substring(2, 6)}.tmp`);
   try {
-    fs.writeFileSync(fp, JSON.stringify(data, null, 2), 'utf-8');
-  } catch (err: any) {
-    console.warn(`[server-store] Disk write warning (${filename}):`, err.message);
+    fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
+    fs.renameSync(tmpPath, fp);
+  } catch {
+    try {
+      if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+    } catch {}
+    try {
+      fs.writeFileSync(fp, JSON.stringify(data, null, 2), 'utf-8');
+    } catch (err: any) {
+      console.warn(`[server-store] Disk write warning (${filename}):`, err.message);
+    }
   }
 }
 
@@ -232,11 +249,89 @@ if (!global.__synapse_members) {
   global.__synapse_members = readJsonFile<StoredWorkspaceMember[]>('members.json', []);
 }
 
+if (!global.__synapse_evictions) {
+  global.__synapse_evictions = readJsonFile<StoredWorkspaceEviction[]>('evictions.json', []);
+}
+
+if (!global.__synapse_deleted_workspaces) {
+  global.__synapse_deleted_workspaces = readJsonFile<string[]>('deleted_workspaces.json', []);
+}
+
 if (!global.__synapse_shares) {
   global.__synapse_shares = new Map();
 }
 
 export const serverStore = {
+  // Deleted workspaces
+  isWorkspaceDeleted: (workspaceId: string): boolean => {
+    if (!workspaceId) return false;
+    const all = global.__synapse_deleted_workspaces || [];
+    return all.includes(workspaceId);
+  },
+  markWorkspaceDeleted: (workspaceId: string): void => {
+    if (!workspaceId) return;
+    const all = global.__synapse_deleted_workspaces || [];
+    if (!all.includes(workspaceId)) {
+      all.push(workspaceId);
+      global.__synapse_deleted_workspaces = all;
+      writeJsonFile('deleted_workspaces.json', all);
+    }
+  },
+
+  // Evictions
+  getEvictions: (workspaceId: string): string[] => {
+    const all = global.__synapse_evictions || [];
+    return all.filter((e) => e.workspace_id === workspaceId).map((e) => e.email.toLowerCase());
+  },
+  isEvicted: (workspaceId: string, email: string): boolean => {
+    if (!workspaceId || !email) return false;
+    const cleanEmail = email.trim().toLowerCase();
+    const all = global.__synapse_evictions || [];
+    return all.some((e) => e.workspace_id === workspaceId && e.email.toLowerCase() === cleanEmail);
+  },
+  addEviction: (workspaceId: string, email: string): void => {
+    if (!workspaceId || !email) return;
+    const cleanEmail = email.trim().toLowerCase();
+    const all = global.__synapse_evictions || [];
+    if (!all.some((e) => e.workspace_id === workspaceId && e.email.toLowerCase() === cleanEmail)) {
+      all.push({
+        workspace_id: workspaceId,
+        email: cleanEmail,
+        evicted_at: new Date().toISOString(),
+      });
+      global.__synapse_evictions = all;
+      writeJsonFile('evictions.json', all);
+    }
+  },
+  removeEviction: (workspaceId: string, email: string): void => {
+    if (!workspaceId || !email) return;
+    const cleanEmail = email.trim().toLowerCase();
+    const all = global.__synapse_evictions || [];
+    const filtered = all.filter(
+      (e) => !(e.workspace_id === workspaceId && e.email.toLowerCase() === cleanEmail)
+    );
+    global.__synapse_evictions = filtered;
+    writeJsonFile('evictions.json', filtered);
+  },
+  removeWorkspaceMember: (workspaceId: string, emailOrId: string): StoredWorkspaceMember | null => {
+    const all = global.__synapse_members || [];
+    const clean = emailOrId.trim().toLowerCase();
+    const target = all.find(
+      (m) => m.workspace_id === workspaceId && (m.id === emailOrId || m.email.toLowerCase() === clean)
+    );
+    if (target) {
+      const remaining = all.filter((m) => m !== target);
+      global.__synapse_members = remaining;
+      writeJsonFile('members.json', remaining);
+      serverStore.addEviction(workspaceId, target.email);
+      return target;
+    }
+    if (clean.includes('@')) {
+      serverStore.addEviction(workspaceId, clean);
+    }
+    return null;
+  },
+
   // Notes
   getNotes: (workspaceId?: string): StoredNote[] => {
     const all = global.__synapse_notes || [];

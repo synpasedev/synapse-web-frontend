@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { isSupabaseConfigured } from '@/lib/supabase/config';
 import { serverStore, StoredWorkspaceMember } from '@/lib/server-store';
+import { serverInvites } from '@/lib/server-invites';
 
 /**
  * GET /api/workspaces/[workspaceId]/members
@@ -119,5 +120,49 @@ export async function POST(
     return NextResponse.json({ success: true, member: saved }, { status: 201 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Failed to save member' }, { status: 500 });
+  }
+}
+
+/**
+ * DELETE /api/workspaces/[workspaceId]/members
+ * Evicts/removes a member from the workspace and records in eviction registry
+ */
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ workspaceId: string }> }
+) {
+  try {
+    const { workspaceId } = await params;
+    const { searchParams } = new URL(request.url);
+    const email = searchParams.get('email');
+    const memberId = searchParams.get('memberId');
+
+    if (!workspaceId || (!email && !memberId)) {
+      return NextResponse.json({ error: 'workspaceId and email or memberId are required' }, { status: 400 });
+    }
+
+    const target = email || memberId || '';
+    const removed = serverStore.removeWorkspaceMember(workspaceId, target);
+    const targetEmail = removed?.email || (target.includes('@') ? target.trim().toLowerCase() : undefined);
+
+    if (targetEmail) {
+      serverStore.addEviction(workspaceId, targetEmail);
+      await serverInvites.revokeInvitesForEmail(workspaceId, targetEmail);
+    }
+
+    if (isSupabaseConfigured() && targetEmail) {
+      try {
+        const supabase = await createServerSupabaseClient();
+        await supabase.from('memberships').delete().eq('workspace_id', workspaceId);
+      } catch {}
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Member removed, pending invites revoked, and recorded in eviction registry',
+      removed,
+    });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message || 'Failed to remove member' }, { status: 500 });
   }
 }

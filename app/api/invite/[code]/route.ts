@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { serverInvites } from '@/lib/server-invites';
+import { serverInvites, checkRateLimit } from '@/lib/server-invites';
+import { serverStore } from '@/lib/server-store';
 
 /**
  * GET /api/invite/[code]
@@ -19,10 +20,25 @@ export async function GET(
       );
     }
 
+    const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'anon';
+    if (!checkRateLimit(`invite_get_${ip}`, 60, 60000)) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again in a moment.' },
+        { status: 429 }
+      );
+    }
+
     const invite = await serverInvites.getInvite(code);
     if (!invite) {
       return NextResponse.json(
         { error: 'Invitation link is invalid or has expired.' },
+        { status: 404 }
+      );
+    }
+
+    if (serverStore.isWorkspaceDeleted(invite.workspace_id)) {
+      return NextResponse.json(
+        { error: 'This workspace has been deleted by its owner.', deleted: true, workspaceDeleted: true },
         { status: 404 }
       );
     }
@@ -38,6 +54,13 @@ export async function GET(
       return NextResponse.json(
         { error: 'This invitation has been revoked.', revoked: true },
         { status: 410 }
+      );
+    }
+
+    if (invite.status === 'consumed') {
+      return NextResponse.json(
+        { error: 'This invitation has already been accepted and cannot be reused.', consumed: true },
+        { status: 409 }
       );
     }
 

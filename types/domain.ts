@@ -97,7 +97,8 @@ export interface WorkspaceInvite {
   created_by: string;
   created_at: string;
   expires_at?: string;
-  status?: 'pending' | 'accepted' | 'revoked';
+  status?: 'pending' | 'accepted' | 'consumed' | 'revoked';
+  is_public_link?: boolean;
 }
 
 export interface Workspace {

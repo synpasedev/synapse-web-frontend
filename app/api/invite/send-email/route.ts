@@ -95,19 +95,27 @@ export async function POST(req: NextRequest) {
     }
 
     const sentCount = results.filter((r) => r.success).length;
-    const failedCount = results.filter((r) => !r.success).length;
+    const failedResults = results.filter((r) => !r.success);
+    const successfulRecipients = results.filter((r) => r.success).map((r) => r.recipient);
+    const failedRecipients = failedResults.map((r) => ({
+      email: r.recipient,
+      error: r.error || 'Delivery failed',
+    }));
 
     if (sentCount === 0) {
-      const firstError = results.find((r) => !r.success)?.error || 'Failed to deliver email via SMTP.';
+      const firstError = failedResults[0]?.error || 'Failed to deliver email via SMTP.';
       return NextResponse.json(
         {
           error: firstError,
           success: false,
+          partialFailure: false,
+          successfulRecipients: [],
+          failedRecipients,
           results,
           summary: {
             total: emailList.length,
             sent: 0,
-            failed: failedCount,
+            failed: failedResults.length,
           },
         },
         { status: 400 }
@@ -116,11 +124,14 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      partialFailure: failedResults.length > 0,
+      successfulRecipients,
+      failedRecipients,
       results,
       summary: {
         total: emailList.length,
         sent: sentCount,
-        failed: failedCount,
+        failed: failedResults.length,
       },
     });
 

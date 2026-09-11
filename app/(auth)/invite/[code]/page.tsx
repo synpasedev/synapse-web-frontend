@@ -15,10 +15,6 @@ function InviteContent() {
   const router = useRouter();
   const code = (params?.code as string) || '';
 
-  const paramWs = searchParams?.get('ws') || '';
-  const paramName = searchParams?.get('name') || '';
-  const paramIcon = searchParams?.get('icon') || '';
-  const paramRole = (searchParams?.get('role') as WorkspaceRole) || 'editor';
   const paramEmail = searchParams?.get('email') || '';
 
   const [loading, setLoading] = useState(true);
@@ -26,6 +22,7 @@ function InviteContent() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
+  const [loggedInEmail, setLoggedInEmail] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [joined, setJoined] = useState(false);
 
@@ -39,120 +36,82 @@ function InviteContent() {
         setError(null);
         const cleanCode = code.trim().toLowerCase();
 
-        // 1. If enriched query parameters exist in URL, hydrate immediately
-        if (paramWs || paramName) {
-          const now = new Date().toISOString();
-          const oneWeekLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-
-          const recoveredInvite: WorkspaceInvite = {
-            id: `inv-${cleanCode.replace(/^syn-/, '')}`,
-            workspace_id: paramWs || 'ws-default-synapse',
-            email: paramEmail || undefined,
-            role: paramRole,
-            invite_code: cleanCode,
-            created_by: 'system',
-            created_at: now,
-            expires_at: oneWeekLater,
-            status: 'pending',
-          };
-
-          const recoveredWorkspace: Workspace = {
-            id: paramWs || 'ws-default-synapse',
-            name: paramName || 'Collaborative Workspace',
-            slug: (paramName || 'workspace').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''),
-            icon: paramIcon || '👥',
-            owner_id: 'system',
-            type: 'shared',
-            role: paramRole,
-            created_at: now,
-            updated_at: now,
-          };
-
-          // Cache locally in Dexie
-          await localDb.transaction('rw', [localDb.workspace_invites, localDb.workspaces], async () => {
-            await localDb.workspace_invites.put(recoveredInvite);
-            await localDb.workspaces.put(recoveredWorkspace);
-          });
-
-          // Sync to server API in the background
-          fetch('/api/invite', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              invite: {
-                ...recoveredInvite,
-                workspace_name: recoveredWorkspace.name,
-                workspace_icon: recoveredWorkspace.icon,
-                workspace_slug: recoveredWorkspace.slug,
-              },
-            }),
-          }).catch(() => {});
-
-          setInvite(recoveredInvite);
-          setWorkspace(recoveredWorkspace);
-          if (paramEmail) setEmail(paramEmail);
-          setLoading(false);
+        // 1. Authoritative Server Verification (Eliminates privilege escalation and revocation bypass)
+        const res = await fetch(`/api/invite/${encodeURIComponent(cleanCode)}`);
+        
+        if (!res.ok) {
+          const errJson = await res.json().catch(() => ({}));
+          const errorMsg =
+            errJson.error ||
+            (errJson.consumed
+              ? 'This invitation has already been accepted and cannot be reused.'
+              : errJson.revoked
+              ? 'This invitation has been revoked by the workspace owner.'
+              : errJson.expired
+              ? 'This invitation link has expired.'
+              : errJson.deleted
+              ? 'This workspace has been deleted by its owner.'
+              : 'Invitation link is invalid or has expired.');
+          setError(errorMsg);
           return;
         }
 
-        // 2. Check local Dexie IndexedDB
-        const allInvites = await localDb.workspace_invites.toArray();
-        let found = allInvites.find(
-          (i) => i.invite_code && i.invite_code.toLowerCase() === cleanCode
-        );
+        const data = await res.json();
+        const serverInvite: WorkspaceInvite = data.invite;
+        const serverWorkspace: Workspace = data.workspace;
 
-        let ws: Workspace | null = null;
-        if (found) {
-          ws = (await localDb.workspaces.get(found.workspace_id)) || null;
-        }
-
-        // 3. If not found in IndexedDB or workspace missing, query central server API
-        if (!found || !ws) {
-          try {
-            const res = await fetch(`/api/invite/${encodeURIComponent(cleanCode)}`);
-            if (res.ok) {
-              const data = await res.json();
-              if (data.invite) {
-                found = data.invite;
-
-                // Sync invite to local Dexie
-                await localDb.workspace_invites.put(found!);
-
-                // Sync workspace to local Dexie
-                const wsData = data.workspace;
-                const now = new Date().toISOString();
-                const fetchedWs: Workspace = {
-                  id: wsData?.id || found!.workspace_id,
-                  name: wsData?.name || 'Workspace',
-                  slug: (wsData?.name || 'workspace').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-                  icon: wsData?.icon || '👥',
-                  owner_id: found!.created_by || 'system',
-                  type: 'shared',
-                  role: found!.role || 'editor',
-                  created_at: now,
-                  updated_at: now,
-                };
-                ws = fetchedWs;
-                await localDb.workspaces.put(fetchedWs);
-              }
-            } else {
-              const errJson = await res.json().catch(() => ({}));
-              if (!found) {
-                setError(errJson.error || 'Invitation link is invalid or has expired.');
-                return;
-              }
-            }
-          } catch (networkErr) {
-            console.warn('[InvitePage] Server fetch fallback error:', networkErr);
-          }
-        }
-
-        if (found) {
-          setInvite(found);
-          if (ws) setWorkspace(ws);
-          if (found.email) setEmail(found.email);
-        } else {
+        if (!serverInvite || !serverWorkspace) {
           setError('Invitation link is invalid or has expired.');
+          return;
+        }
+
+        // 2. Enforce status verification
+        if (serverInvite.status === 'consumed') {
+          setError('This invitation has already been accepted and cannot be reused.');
+          return;
+        }
+        if (serverInvite.status === 'revoked') {
+          setError('This invitation has been revoked by the workspace owner.');
+          return;
+        }
+        if (serverInvite.expires_at && new Date(serverInvite.expires_at) < new Date()) {
+          setError('This invitation link has expired.');
+          return;
+        }
+
+        // 3. Cache verified invite and workspace in local Dexie
+        await localDb.transaction('rw', [localDb.workspace_invites, localDb.workspaces], async () => {
+          await localDb.workspace_invites.put(serverInvite);
+          await localDb.workspaces.put(serverWorkspace);
+        });
+
+        setInvite(serverInvite);
+        setWorkspace(serverWorkspace);
+
+        // Pre-fill email from invite, local storage, or query parameter
+        const storedEmail =
+          typeof window !== 'undefined'
+            ? localStorage.getItem('synapse_current_user_email') || ''
+            : '';
+        const storedName =
+          typeof window !== 'undefined'
+            ? localStorage.getItem('synapse_current_user_name') || ''
+            : '';
+
+        if (storedEmail && storedEmail !== 'user@synapse.local' && storedEmail !== 'guest@synapse.local') {
+          setLoggedInEmail(storedEmail);
+        }
+
+        if (serverInvite.email) {
+          setEmail(serverInvite.email);
+        } else if (storedEmail && storedEmail !== 'user@synapse.local' && storedEmail !== 'guest@synapse.local') {
+          setEmail(storedEmail);
+        } else if (paramEmail) {
+          setEmail(paramEmail);
+        }
+
+        if (storedName && storedName !== 'Workspace Owner') {
+          setName(storedName);
         }
       } catch (err: any) {
         setError(err.message || 'Failed to load invitation.');
@@ -162,7 +121,7 @@ function InviteContent() {
     }
 
     loadInvite();
-  }, [code, paramWs, paramName, paramIcon, paramRole, paramEmail]);
+  }, [code, paramEmail]);
 
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -171,10 +130,18 @@ function InviteContent() {
       const userEmail = email.trim() || paramEmail || 'collaborator@synapse.local';
       const userName = name.trim() || 'New Collaborator';
 
-      // Persist user preference for local profile
+      // Safe session persistence: Only overwrite if no active session or matching (EC-3.2)
       try {
-        localStorage.setItem('synapse_current_user_email', userEmail);
-        localStorage.setItem('synapse_current_user_name', userName);
+        const currentStored = localStorage.getItem('synapse_current_user_email');
+        if (
+          !currentStored ||
+          currentStored === 'user@synapse.local' ||
+          currentStored === 'guest@synapse.local' ||
+          currentStored.toLowerCase() === userEmail.toLowerCase()
+        ) {
+          localStorage.setItem('synapse_current_user_email', userEmail);
+          localStorage.setItem('synapse_current_user_name', userName);
+        }
       } catch {}
 
       const result = await acceptInvite({
@@ -254,24 +221,42 @@ function InviteContent() {
         <p className="text-xs text-muted-foreground">
           You've been invited to collaborate as an{' '}
           <span className="font-semibold text-indigo-400 uppercase tracking-wider">
-            {invite?.role || paramRole || 'editor'}
+            {invite?.role || 'editor'}
           </span>
         </p>
       </div>
 
       <form onSubmit={handleJoin} className="space-y-4">
         <div>
-          <label className="text-xs font-semibold text-foreground uppercase tracking-wider block mb-1.5">
-            Your Email
-          </label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-xs font-semibold text-foreground uppercase tracking-wider block">
+              Your Email
+            </label>
+            {invite?.email && (
+              <span className="text-[10px] text-muted-foreground">
+                (Designated recipient)
+              </span>
+            )}
+          </div>
           <input
             type="email"
             required
+            readOnly={Boolean(invite?.email)}
             placeholder="you@company.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full px-3 py-2 text-xs bg-secondary/50 border border-border/60 rounded-xl text-foreground placeholder:text-muted-foreground/60 focus:outline-hidden focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+            className={`w-full px-3 py-2 text-xs bg-secondary/50 border border-border/60 rounded-xl text-foreground placeholder:text-muted-foreground/60 focus:outline-hidden focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 ${
+              invite?.email ? 'opacity-80 cursor-not-allowed bg-secondary/30' : ''
+            }`}
           />
+          {invite?.email && loggedInEmail && loggedInEmail.toLowerCase() !== invite.email.toLowerCase() && (
+            <div className="mt-2 p-2.5 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-300 text-[11px] flex items-start gap-2">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              <span>
+                You are signed in as <strong>{loggedInEmail}</strong>. Joining will add <strong>{invite.email}</strong> to this workspace.
+              </span>
+            </div>
+          )}
         </div>
 
         <div>

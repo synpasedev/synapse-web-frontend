@@ -6,6 +6,21 @@ import { serverStore, StoredNote } from '@/lib/server-store';
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const workspaceId = searchParams.get('workspaceId') || 'ws-default-synapse';
+  const userEmail = searchParams.get('email');
+
+  if (serverStore.isWorkspaceDeleted(workspaceId)) {
+    return NextResponse.json(
+      { error: 'Workspace has been deleted', workspaceDeleted: true },
+      { status: 410 }
+    );
+  }
+
+  if (userEmail && serverStore.isEvicted(workspaceId, userEmail)) {
+    return NextResponse.json(
+      { error: 'Access revoked. You have been removed from this workspace.', evicted: true },
+      { status: 403 }
+    );
+  }
 
   const notesMap = new Map<string, StoredNote>();
 
@@ -73,6 +88,22 @@ export async function POST(request: NextRequest) {
     } = body;
 
     const now = new Date().toISOString();
+
+    if (serverStore.isWorkspaceDeleted(workspaceId)) {
+      return NextResponse.json(
+        { error: 'Workspace has been deleted', workspaceDeleted: true },
+        { status: 410 }
+      );
+    }
+
+    const email = author_email || body.email || body.userEmail;
+    if (email && serverStore.isEvicted(workspaceId, email)) {
+      return NextResponse.json(
+        { error: 'Access revoked. You have been removed from this workspace.', evicted: true },
+        { status: 403 }
+      );
+    }
+
     const noteToSave: StoredNote = {
       id: id || `note-${crypto.randomUUID().slice(0, 8)}`,
       workspace_id: workspaceId,

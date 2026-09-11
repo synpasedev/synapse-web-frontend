@@ -211,6 +211,18 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
       }
 
       const sentCount = data.summary?.sent ?? recipients.length;
+      if (data.partialFailure || (data.summary?.failed > 0 && sentCount > 0)) {
+        const failedInfo = data.failedRecipients
+          ?.map((f: any) => `${f.email}: ${f.error}`)
+          .join('\n');
+        setEmailFeedback({
+          type: 'info',
+          message: `Sent to ${sentCount} recipient${sentCount > 1 ? 's' : ''}, but ${data.summary.failed} failed.`,
+          details: failedInfo || undefined,
+        });
+        return true;
+      }
+
       setEmailFeedback({
         type: 'success',
         message: `Direct invite email${sentCount > 1 ? 's' : ''} sent successfully via Nodemailer to ${sentCount} recipient${sentCount > 1 ? 's' : ''}!`,

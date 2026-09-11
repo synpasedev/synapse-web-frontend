@@ -41,9 +41,16 @@ export async function POST(
     });
   } catch (error: any) {
     console.error('Error in POST /api/invite/[code]/accept:', error);
+    const statusCode = error.statusCode || (error.message?.includes('removed') ? 403 : 400);
     return NextResponse.json(
-      { error: error.message || 'Failed to accept invitation.' },
-      { status: 500 }
+      {
+        error: error.message || 'Failed to accept invitation.',
+        evicted: Boolean(error.evicted || error.message?.includes('removed')),
+        consumed: Boolean(error.consumed),
+        revoked: Boolean(error.revoked),
+        expired: Boolean(error.expired),
+      },
+      { status: statusCode }
     );
   }
 }

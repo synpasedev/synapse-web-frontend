@@ -8,6 +8,17 @@ export async function GET(
   { params }: { params: Promise<{ noteId: string }> }
 ) {
   const { noteId } = await params;
+  const { searchParams } = new URL(request.url);
+  const userEmail = searchParams.get('email');
+
+  const localNote = serverStore.getNotes().find((n) => n.id === noteId);
+  const wsId = localNote?.workspace_id;
+  if (wsId && serverStore.isWorkspaceDeleted(wsId)) {
+    return NextResponse.json({ error: 'Workspace has been deleted', workspaceDeleted: true }, { status: 410 });
+  }
+  if (wsId && userEmail && serverStore.isEvicted(wsId, userEmail)) {
+    return NextResponse.json({ error: 'Access revoked', evicted: true }, { status: 403 });
+  }
 
   if (isSupabaseConfigured()) {
     try {
@@ -38,6 +49,19 @@ export async function PATCH(
 
   try {
     const updates = await request.json();
+
+    const existingNote = serverStore.getNotes().find((n) => n.id === noteId);
+    const wsId = updates.workspace_id || existingNote?.workspace_id;
+    if (wsId && serverStore.isWorkspaceDeleted(wsId)) {
+      return NextResponse.json({ error: 'Workspace has been deleted', workspaceDeleted: true }, { status: 410 });
+    }
+    const email = updates.author_email || updates.email || updates.updated_by;
+    if (wsId && email && serverStore.isEvicted(wsId, email)) {
+      return NextResponse.json(
+        { error: 'Access revoked. You have been removed from this workspace.', evicted: true },
+        { status: 403 }
+      );
+    }
 
     if (isSupabaseConfigured()) {
       try {

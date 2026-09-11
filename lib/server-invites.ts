@@ -1,13 +1,35 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { WorkspaceInvite, WorkspaceRole } from '@/types/domain';
 import { isSupabaseConfigured } from '@/lib/supabase/config';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { serverStore } from '@/lib/server-store';
 
 export interface StoredServerInvite extends WorkspaceInvite {
   workspace_name?: string;
   workspace_icon?: string;
   workspace_slug?: string;
+  is_public_link?: boolean;
+}
+
+export function generateSecureInviteCode(): string {
+  return `syn-${crypto.randomBytes(8).toString('hex')}`;
+}
+
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+export function checkRateLimit(key: string, limit = 50, windowMs = 60000): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(key);
+  if (!entry || now > entry.resetAt) {
+    rateLimitMap.set(key, { count: 1, resetAt: now + windowMs });
+    return true;
+  }
+  if (entry.count >= limit) {
+    return false;
+  }
+  entry.count++;
+  return true;
 }
 
 // Global in-memory cache to survive across module reloads in Node
@@ -90,7 +112,9 @@ function writeInviteToDisk(invite: StoredServerInvite): void {
     if (!dir) return;
     const safeCode = invite.invite_code.toLowerCase().trim().replace(/[^a-z0-9_-]/g, '_');
     const filePath = path.join(dir, `${safeCode}.json`);
-    fs.writeFileSync(filePath, JSON.stringify(invite, null, 2), 'utf-8');
+    const tmpPath = path.join(dir, `${safeCode}.${Date.now()}.${Math.random().toString(36).substring(2, 6)}.tmp`);
+    fs.writeFileSync(tmpPath, JSON.stringify(invite, null, 2), 'utf-8');
+    fs.renameSync(tmpPath, filePath);
   } catch (err: any) {
     console.warn('[server-invites] Could not write invite to disk (memory cache active):', err.message);
   }
@@ -107,6 +131,11 @@ export const serverInvites = {
       invite_code: cleanCode,
       status: invite.status || 'pending',
     };
+
+    // If an owner sends an invite to an email, un-evict them
+    if (invite.email && invite.workspace_id) {
+      serverStore.removeEviction(invite.workspace_id, invite.email);
+    }
 
     // 1. Memory cache
     global.__synapse_invites!.set(cleanCode, normalizedInvite);
@@ -205,7 +234,7 @@ export const serverInvites = {
   },
 
   /**
-   * Mark an invite as accepted
+   * Mark an invite as accepted or consumed
    */
   async acceptInvite(
     code: string,
@@ -215,8 +244,60 @@ export const serverInvites = {
     const invite = await this.getInvite(code);
     if (!invite) return null;
 
-    invite.status = 'accepted';
+    // 1. Check if user was evicted/kicked out
+    if (userEmail && serverStore.isEvicted(invite.workspace_id, userEmail)) {
+      const err = new Error('You have been removed from this workspace. Please contact the workspace owner to be re-invited.');
+      (err as any).evicted = true;
+      (err as any).statusCode = 403;
+      throw err;
+    }
+
+    // 2. Check if already consumed (single-use)
+    if (invite.status === 'consumed') {
+      const err = new Error('This invitation has already been accepted and cannot be reused.');
+      (err as any).consumed = true;
+      (err as any).statusCode = 409;
+      throw err;
+    }
+
+    // 3. Check if revoked
+    if (invite.status === 'revoked') {
+      const err = new Error('This invitation has been revoked by the workspace owner.');
+      (err as any).revoked = true;
+      (err as any).statusCode = 410;
+      throw err;
+    }
+
+    // 4. Check if expired
+    if (invite.expires_at && new Date(invite.expires_at) < new Date()) {
+      const err = new Error('This invitation has expired.');
+      (err as any).expired = true;
+      (err as any).statusCode = 410;
+      throw err;
+    }
+
+    // Targeted email invites are single-use; public links remain reusable
+    if (invite.email && !invite.is_public_link) {
+      invite.status = 'consumed';
+    } else {
+      invite.status = 'accepted';
+    }
+
     await this.saveInvite(invite);
+
+    // Save member in shared serverStore
+    if (userEmail) {
+      serverStore.saveWorkspaceMember({
+        id: `mem-${crypto.randomUUID().slice(0, 8)}`,
+        workspace_id: invite.workspace_id,
+        user_id: `usr-${crypto.randomUUID().slice(0, 8)}`,
+        name: userName || userEmail.split('@')[0],
+        email: userEmail.trim().toLowerCase(),
+        role: invite.role,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+    }
 
     // Optional Supabase membership creation
     if (isSupabaseConfigured()) {
@@ -248,5 +329,72 @@ export const serverInvites = {
     invite.status = 'revoked';
     await this.saveInvite(invite);
     return true;
+  },
+
+  /**
+   * Revoke all pending invites for an email in a workspace (EC-1.4)
+   */
+  async revokeInvitesForEmail(workspaceId: string, email: string): Promise<number> {
+    if (!workspaceId || !email) return 0;
+    const cleanEmail = email.toLowerCase().trim();
+    let count = 0;
+
+    // 1. Memory cache
+    if (global.__synapse_invites) {
+      for (const [code, invite] of global.__synapse_invites.entries()) {
+        if (
+          invite.workspace_id === workspaceId &&
+          invite.email?.toLowerCase().trim() === cleanEmail &&
+          invite.status === 'pending'
+        ) {
+          invite.status = 'revoked';
+          writeInviteToDisk(invite);
+          count++;
+        }
+      }
+    }
+
+    // 2. Disk cache
+    const dir = getInvitesDir();
+    try {
+      if (fs.existsSync(dir)) {
+        const files = fs.readdirSync(dir);
+        for (const file of files) {
+          if (file.endsWith('.json')) {
+            try {
+              const filePath = path.join(dir, file);
+              const data = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as StoredServerInvite;
+              if (
+                data.workspace_id === workspaceId &&
+                data.email?.toLowerCase().trim() === cleanEmail &&
+                data.status === 'pending'
+              ) {
+                data.status = 'revoked';
+                writeInviteToDisk(data);
+                if (global.__synapse_invites) {
+                  global.__synapse_invites.set(data.invite_code.toLowerCase().trim(), data);
+                }
+                count++;
+              }
+            } catch {}
+          }
+        }
+      }
+    } catch {}
+
+    // 3. Supabase if configured
+    if (isSupabaseConfigured()) {
+      try {
+        const supabase = await createServerSupabaseClient();
+        await supabase
+          .from('workspace_invites')
+          .update({ status: 'revoked' })
+          .eq('workspace_id', workspaceId)
+          .ilike('email', cleanEmail)
+          .eq('status', 'pending');
+      } catch {}
+    }
+
+    return count;
   },
 };

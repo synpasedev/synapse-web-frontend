@@ -100,6 +100,42 @@ export function useWorkspaceMembers(workspaceId: string) {
         if (res.ok) {
           const json = await res.json();
           const remoteMembers: WorkspaceMember[] = json.data || [];
+
+          // 1. Eviction detection: If remote members exist and current user is missing and not owner
+          const currentUser = getCurrentUserEmailAndName();
+          if (
+            currentUser.email &&
+            currentUser.email !== 'user@synapse.local' &&
+            currentUser.email !== 'guest@synapse.local' &&
+            remoteMembers.length > 0
+          ) {
+            const isMemberRemotely = remoteMembers.some(
+              (m) => m.email?.trim().toLowerCase() === currentUser.email.trim().toLowerCase()
+            );
+            const ws = await localDb.workspaces.get(workspaceId);
+            const isLocalOwner = ws?.owner_id === currentUser.id;
+
+            if (!isMemberRemotely && !isLocalOwner) {
+              // Active user has been removed from this workspace! Purge local cache.
+              await localDb.transaction(
+                'rw',
+                [localDb.workspaces, localDb.workspace_members, localDb.notes, localDb.blocks],
+                async () => {
+                  await localDb.workspace_members.where('workspace_id').equals(workspaceId).delete();
+                  await localDb.workspaces.delete(workspaceId);
+                  await localDb.notes.where('workspace_id').equals(workspaceId).delete();
+                  await localDb.blocks.where('workspace_id').equals(workspaceId).delete();
+                }
+              );
+
+              if (typeof window !== 'undefined' && window.location.pathname.includes(workspaceId)) {
+                window.location.href = '/?evicted=true';
+              }
+              return [];
+            }
+          }
+
+          // 2. Add or update remote members
           for (const rm of remoteMembers) {
             if (!rm.email) continue;
             const existing = await localDb.workspace_members
@@ -122,6 +158,18 @@ export function useWorkspaceMembers(workspaceId: string) {
                 created_at: rm.created_at || new Date().toISOString(),
                 updated_at: rm.updated_at || new Date().toISOString(),
               });
+            }
+          }
+
+          // 3. Purge non-owner members locally that were removed on server
+          if (remoteMembers.length > 0) {
+            const remoteEmails = new Set(remoteMembers.map((m) => m.email?.trim().toLowerCase()).filter(Boolean));
+            const localExisting = await localDb.workspace_members.where('workspace_id').equals(workspaceId).toArray();
+            const toPurgeLocal = localExisting
+              .filter((m) => m.role !== 'owner' && m.email && !remoteEmails.has(m.email.trim().toLowerCase()))
+              .map((m) => m.id);
+            if (toPurgeLocal.length > 0) {
+              await localDb.workspace_members.bulkDelete(toPurgeLocal);
             }
           }
         }
@@ -311,7 +359,7 @@ export function useInviteMember() {
     }): Promise<{ invite: WorkspaceInvite; member?: WorkspaceMember }> => {
       await ensureSeedData();
       const now = new Date().toISOString();
-      const inviteCode = `syn-${Math.random().toString(36).substring(2, 8)}`;
+      const inviteCode = `syn-${crypto.randomUUID().replace(/-/g, '').substring(0, 16)}`;
 
       const newInvite: WorkspaceInvite = {
         id: `inv-${crypto.randomUUID().slice(0, 8)}`,
@@ -322,6 +370,7 @@ export function useInviteMember() {
         created_by: 'local-user-1',
         created_at: now,
         expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        is_public_link: !email,
       };
 
       let newMember: WorkspaceMember | undefined;
@@ -329,12 +378,23 @@ export function useInviteMember() {
       if (email && email.trim()) {
         const normalizedEmail = email.trim().toLowerCase();
 
-        // 1. Check if user is already an existing member of this workspace
+        // 1. Check if owner is inviting themselves (EC-3.3)
+        const currentUser = getCurrentUserEmailAndName();
         const existingMembers = await localDb.workspace_members
           .where('workspace_id')
           .equals(workspaceId)
           .toArray();
 
+        const isOwner =
+          (currentUser.email && currentUser.email.toLowerCase() === normalizedEmail) ||
+          existingMembers.some(
+            (m) => m.role === 'owner' && m.email && m.email.trim().toLowerCase() === normalizedEmail
+          );
+        if (isOwner) {
+          throw new Error('You cannot invite yourself to your own workspace.');
+        }
+
+        // 2. Check if user is already an existing member of this workspace
         const alreadyMember = existingMembers.find(
           (m) => m.email && m.email.trim().toLowerCase() === normalizedEmail
         );
@@ -344,7 +404,7 @@ export function useInviteMember() {
           );
         }
 
-        // 2. Check if an active invite has already been sent to this user
+        // 3. Check if an active invite has already been sent to this user
         const existingInvites = await localDb.workspace_invites
           .where('workspace_id')
           .equals(workspaceId)
@@ -354,7 +414,9 @@ export function useInviteMember() {
           (i) =>
             i.email &&
             i.email.trim().toLowerCase() === normalizedEmail &&
-            (!i.expires_at || new Date(i.expires_at) > new Date())
+            (!i.expires_at || new Date(i.expires_at) > new Date()) &&
+            i.status !== 'revoked' &&
+            i.status !== 'consumed'
         );
         if (alreadyInvited) {
           throw new Error(
@@ -454,7 +516,16 @@ export function useRemoveMember() {
       memberId: string;
       workspaceId: string;
     }) => {
+      const member = await localDb.workspace_members.get(memberId);
       await localDb.workspace_members.delete(memberId);
+
+      // Record eviction and remove on server (EC-1.1 & EC-1.2)
+      if (member?.email) {
+        fetch(
+          `/api/workspaces/${encodeURIComponent(workspaceId)}/members?email=${encodeURIComponent(member.email)}&memberId=${encodeURIComponent(memberId)}`,
+          { method: 'DELETE' }
+        ).catch(() => {});
+      }
       return { memberId };
     },
     onSuccess: (_, variables) => {
@@ -482,6 +553,17 @@ export function useRemoveMultipleMembers() {
         .map((m) => m.id);
 
       await localDb.workspace_members.bulkDelete(nonOwnerIds);
+
+      // Record evictions on server for each removed member (EC-1.1)
+      for (const m of members) {
+        if (m && m.role !== 'owner' && m.email) {
+          fetch(
+            `/api/workspaces/${encodeURIComponent(workspaceId)}/members?email=${encodeURIComponent(m.email)}&memberId=${encodeURIComponent(m.id)}`,
+            { method: 'DELETE' }
+          ).catch(() => {});
+        }
+      }
+
       return { removedCount: nonOwnerIds.length };
     },
     onSuccess: (_, variables) => {
@@ -539,6 +621,7 @@ export function useBatchInviteMembers() {
     }> => {
       await ensureSeedData();
       const now = new Date().toISOString();
+      const currentUser = getCurrentUserEmailAndName();
 
       const existingMembers = await localDb.workspace_members
         .where('workspace_id')
@@ -554,7 +637,7 @@ export function useBatchInviteMembers() {
         .toArray();
       const existingInviteEmails = new Set(
         existingInvites
-          .filter((i) => !i.expires_at || new Date(i.expires_at) > new Date())
+          .filter((i) => (!i.expires_at || new Date(i.expires_at) > new Date()) && i.status !== 'revoked' && i.status !== 'consumed')
           .map((i) => i.email?.toLowerCase().trim())
           .filter(Boolean)
       );
@@ -570,6 +653,17 @@ export function useBatchInviteMembers() {
         const cleanEmail = rawEmail.trim().toLowerCase();
         if (!cleanEmail || !cleanEmail.includes('@')) continue;
 
+        // Skip self-invite (EC-3.3)
+        const isOwner =
+          (currentUser.email && currentUser.email.toLowerCase() === cleanEmail) ||
+          existingMembers.some(
+            (m) => m.role === 'owner' && m.email && m.email.trim().toLowerCase() === cleanEmail
+          );
+        if (isOwner) {
+          skippedAlreadyMember.push(`${cleanEmail} (Workspace Owner)`);
+          continue;
+        }
+
         if (existingMemberEmails.has(cleanEmail)) {
           skippedAlreadyMember.push(cleanEmail);
           continue;
@@ -580,7 +674,7 @@ export function useBatchInviteMembers() {
           continue;
         }
 
-        const inviteCode = `syn-${Math.random().toString(36).substring(2, 8)}`;
+        const inviteCode = `syn-${crypto.randomUUID().replace(/-/g, '').substring(0, 16)}`;
         const memberId = `mem-${crypto.randomUUID().slice(0, 8)}`;
         const inviteId = `inv-${crypto.randomUUID().slice(0, 8)}`;
 
@@ -593,6 +687,7 @@ export function useBatchInviteMembers() {
           created_by: 'local-user-1',
           created_at: now,
           expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          is_public_link: false,
         });
 
         newMembers.push({
@@ -777,6 +872,16 @@ export function useDeleteWorkspace() {
           await localDb.whiteboards.where('workspace_id').equals(workspaceId).delete();
         }
       );
+
+      // 2. Notify server so it registers workspace deletion and rejects pending invites (EC-6.1)
+      try {
+        await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
+          method: 'DELETE',
+        });
+      } catch (err) {
+        console.warn('Failed to notify server of workspace deletion:', err);
+      }
+
       return { workspaceId };
     },
     onSuccess: () => {
@@ -801,38 +906,44 @@ export function useAcceptInvite() {
       await ensureSeedData();
       const cleanCode = code.trim().toLowerCase();
 
-      // 1. Try local IndexedDB
-      let invite = await localDb.workspace_invites
-        .where('invite_code')
-        .equals(code)
-        .first();
-
-      if (!invite) {
-        const allInvites = await localDb.workspace_invites.toArray();
-        invite = allInvites.find((i) => i.invite_code.toLowerCase() === cleanCode);
-      }
-
+      // 1. Authoritative verification: query server API first
+      let invite: WorkspaceInvite | null = null;
       let serverWorkspaceData: any = null;
 
-      // 2. Fallback: query server API if not found locally
-      if (!invite) {
-        try {
-          const res = await fetch(`/api/invite/${encodeURIComponent(cleanCode)}`);
-          if (res.ok) {
-            const data = await res.json();
-            if (data.invite) {
-              invite = data.invite;
-              serverWorkspaceData = data.workspace;
-              await localDb.workspace_invites.put(invite!);
-            }
+      try {
+        const res = await fetch(`/api/invite/${encodeURIComponent(cleanCode)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.invite) {
+            invite = data.invite;
+            serverWorkspaceData = data.workspace;
+            await localDb.workspace_invites.put(invite!);
           }
-        } catch (apiErr) {
-          console.warn('[useAcceptInvite] Server lookup error:', apiErr);
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || 'Invalid or expired invitation link');
         }
+      } catch (apiErr: any) {
+        // Only fallback to local IndexedDB if offline network failure
+        if (apiErr.message && !apiErr.message.includes('fetch')) {
+          throw apiErr;
+        }
+        const allInvites = await localDb.workspace_invites.toArray();
+        invite = allInvites.find((i) => i.invite_code.toLowerCase() === cleanCode) || null;
       }
 
       if (!invite) {
         throw new Error('Invalid or expired invitation link');
+      }
+
+      if (invite.status === 'consumed') {
+        throw new Error('This invitation has already been accepted and cannot be reused.');
+      }
+      if (invite.status === 'revoked') {
+        throw new Error('This invitation has been revoked by the workspace owner.');
+      }
+      if (invite.expires_at && new Date(invite.expires_at) < new Date()) {
+        throw new Error('This invitation link has expired.');
       }
 
       return joinWorkspace(invite, userEmail, userName, serverWorkspaceData);
@@ -845,12 +956,17 @@ export function useAcceptInvite() {
       ) {
         const now = new Date().toISOString();
 
-        // Notify server of acceptance asynchronously
-        fetch(`/api/invite/${encodeURIComponent(cleanCode)}/accept`, {
+        // 2. Await server acceptance (enforces eviction checks and single-use consumption)
+        const acceptRes = await fetch(`/api/invite/${encodeURIComponent(cleanCode)}/accept`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ userEmail: email, userName: name }),
-        }).catch(() => {});
+        });
+
+        if (!acceptRes.ok) {
+          const errData = await acceptRes.json().catch(() => ({}));
+          throw new Error(errData.error || 'Failed to accept invitation.');
+        }
 
         const existingMembers = await localDb.workspace_members
           .where('workspace_id')

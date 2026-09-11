@@ -54,6 +54,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'noteId is required' }, { status: 400 });
     }
 
+    // Check if workspace has been deleted (EC-6.1)
+    if (serverStore.isWorkspaceDeleted(workspaceId)) {
+      return NextResponse.json(
+        { error: 'Workspace has been deleted', workspaceDeleted: true },
+        { status: 410 }
+      );
+    }
+
+    // Check if author has been evicted from workspace (EC-1.3)
+    const authorEmail =
+      body.author_email ||
+      body.userEmail ||
+      body.email ||
+      blocks.find((b: any) => b.author_email)?.author_email;
+
+    if (authorEmail && serverStore.isEvicted(workspaceId, authorEmail)) {
+      return NextResponse.json(
+        { error: 'You have been removed from this workspace. In-flight edits rejected.', evicted: true },
+        { status: 403 }
+      );
+    }
+
     const formatted = blocks.map((block: any, idx: number) => ({
       id: block.id || crypto.randomUUID(),
       note_id: noteId,
