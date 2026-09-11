@@ -19,48 +19,80 @@ if (!global.__synapse_invites) {
   global.__synapse_invites = new Map();
 }
 
+function isServerlessReadOnly(): boolean {
+  return Boolean(
+    process.env.VERCEL ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    (typeof process !== 'undefined' && process.cwd && process.cwd().startsWith('/var/task'))
+  );
+}
+
 // Disk persistence directory (safe for both local dev and serverless /tmp)
 function getInvitesDir(): string {
-  if (process.env.VERCEL) {
+  if (isServerlessReadOnly()) {
     return path.join('/tmp', '.synapse-invites');
   }
   return path.join(process.cwd(), '.synapse-invites');
 }
 
-function ensureInvitesDir(): string {
-  const dir = getInvitesDir();
+function ensureInvitesDir(): string | null {
+  const primaryDir = getInvitesDir();
   try {
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+    if (!fs.existsSync(primaryDir)) {
+      fs.mkdirSync(primaryDir, { recursive: true });
     }
-  } catch (e) {
-    // Ignore if directory creation fails in restricted environment
+    return primaryDir;
+  } catch {
+    // If primary directory fails (e.g. read-only filesystem), fallback to /tmp
+    try {
+      const tmpDir = path.join('/tmp', '.synapse-invites');
+      if (!fs.existsSync(tmpDir)) {
+        fs.mkdirSync(tmpDir, { recursive: true });
+      }
+      return tmpDir;
+    } catch {
+      return null;
+    }
   }
-  return dir;
 }
 
-function inviteFilePath(code: string): string {
+function inviteFilePath(code: string, baseDir?: string): string {
+  const dir = baseDir || getInvitesDir();
   const safeCode = code.toLowerCase().trim().replace(/[^a-z0-9_-]/g, '_');
-  return path.join(ensureInvitesDir(), `${safeCode}.json`);
+  return path.join(dir, `${safeCode}.json`);
 }
 
 function readInviteFromDisk(code: string): StoredServerInvite | null {
+  // 1. Check primary directory
+  const primaryPath = inviteFilePath(code, getInvitesDir());
   try {
-    const filePath = inviteFilePath(code);
-    if (!fs.existsSync(filePath)) return null;
-    const data = fs.readFileSync(filePath, 'utf-8');
-    return JSON.parse(data) as StoredServerInvite;
-  } catch {
-    return null;
-  }
+    if (fs.existsSync(primaryPath)) {
+      const data = fs.readFileSync(primaryPath, 'utf-8');
+      return JSON.parse(data) as StoredServerInvite;
+    }
+  } catch {}
+
+  // 2. Check /tmp fallback
+  const tmpPath = inviteFilePath(code, path.join('/tmp', '.synapse-invites'));
+  try {
+    if (fs.existsSync(tmpPath)) {
+      const data = fs.readFileSync(tmpPath, 'utf-8');
+      return JSON.parse(data) as StoredServerInvite;
+    }
+  } catch {}
+
+  return null;
 }
 
 function writeInviteToDisk(invite: StoredServerInvite): void {
   try {
-    const filePath = inviteFilePath(invite.invite_code);
+    const dir = ensureInvitesDir();
+    if (!dir) return;
+    const safeCode = invite.invite_code.toLowerCase().trim().replace(/[^a-z0-9_-]/g, '_');
+    const filePath = path.join(dir, `${safeCode}.json`);
     fs.writeFileSync(filePath, JSON.stringify(invite, null, 2), 'utf-8');
-  } catch (err) {
-    console.warn('[server-invites] Could not write invite to disk:', err);
+  } catch (err: any) {
+    console.warn('[server-invites] Could not write invite to disk (memory cache active):', err.message);
   }
 }
 

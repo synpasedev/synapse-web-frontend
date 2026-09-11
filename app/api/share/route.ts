@@ -1,40 +1,97 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
+import { serverStore } from '@/lib/server-store';
 
 // ---------------------------------------------------------------------------
-// File-based persistence — shares survive server restarts
-// Stored in: <project-root>/.synapse-shares/<type>__<id>.json
+// File-based & in-memory persistence — shares survive server restarts
+// Safe for both local development and Vercel serverless (/var/task is read-only)
 // ---------------------------------------------------------------------------
 
-const SHARES_DIR = path.join(process.cwd(), '.synapse-shares');
+function isServerlessReadOnly(): boolean {
+  return Boolean(
+    process.env.VERCEL ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    (typeof process !== 'undefined' && process.cwd && process.cwd().startsWith('/var/task'))
+  );
+}
 
-function ensureSharesDir() {
-  if (!fs.existsSync(SHARES_DIR)) {
-    fs.mkdirSync(SHARES_DIR, { recursive: true });
+function getSharesDir(): string {
+  if (isServerlessReadOnly()) {
+    return path.join('/tmp', '.synapse-shares');
+  }
+  return path.join(process.cwd(), '.synapse-shares');
+}
+
+function ensureSharesDir(): string | null {
+  const primaryDir = getSharesDir();
+  try {
+    if (!fs.existsSync(primaryDir)) {
+      fs.mkdirSync(primaryDir, { recursive: true });
+    }
+    return primaryDir;
+  } catch {
+    // If writing in primary failed (e.g. read-only filesystem), fallback to /tmp
+    try {
+      const tmpDir = path.join('/tmp', '.synapse-shares');
+      if (!fs.existsSync(tmpDir)) {
+        fs.mkdirSync(tmpDir, { recursive: true });
+      }
+      return tmpDir;
+    } catch {
+      return null;
+    }
   }
 }
 
-function shareFilePath(type: string, id: string): string {
-  // Sanitise to safe filename
+function shareFilePath(type: string, id: string, baseDir?: string): string {
+  const dir = baseDir || getSharesDir();
   const safeName = `${type.toLowerCase()}__${id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-  return path.join(SHARES_DIR, `${safeName}.json`);
+  return path.join(dir, `${safeName}.json`);
 }
 
 function readShare(type: string, id: string): object | null {
-  const filePath = shareFilePath(type, id);
-  if (!fs.existsSync(filePath)) return null;
+  // 1. In-memory store
+  const fromMemory = serverStore.getShare(type.toLowerCase(), id);
+  if (fromMemory) return fromMemory;
+
+  // 2. Check disk in primary directory
+  const primaryPath = shareFilePath(type, id, getSharesDir());
   try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-  } catch {
-    return null;
-  }
+    if (fs.existsSync(primaryPath)) {
+      const data = JSON.parse(fs.readFileSync(primaryPath, 'utf-8'));
+      serverStore.publishShare(data as any);
+      return data;
+    }
+  } catch {}
+
+  // 3. Check /tmp disk fallback if different from primary
+  const tmpPath = shareFilePath(type, id, path.join('/tmp', '.synapse-shares'));
+  try {
+    if (fs.existsSync(tmpPath)) {
+      const data = JSON.parse(fs.readFileSync(tmpPath, 'utf-8'));
+      serverStore.publishShare(data as any);
+      return data;
+    }
+  } catch {}
+
+  return null;
 }
 
-function writeShare(type: string, id: string, snapshot: object): void {
-  ensureSharesDir();
-  const filePath = shareFilePath(type, id);
-  fs.writeFileSync(filePath, JSON.stringify(snapshot, null, 2), 'utf-8');
+function writeShare(type: string, id: string, snapshot: any): void {
+  // 1. Always store in memory
+  serverStore.publishShare(snapshot);
+
+  // 2. Best-effort disk persistence (does not crash on read-only environments)
+  const dir = ensureSharesDir();
+  if (dir) {
+    try {
+      const filePath = shareFilePath(type, id, dir);
+      fs.writeFileSync(filePath, JSON.stringify(snapshot, null, 2), 'utf-8');
+    } catch (err: any) {
+      console.warn('[app/api/share] Disk persistence warning (falling back to memory):', err.message);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -42,7 +99,7 @@ function writeShare(type: string, id: string, snapshot: object): void {
 /**
  * POST /api/share
  * Body: { type, id, resource, blocks?, publisherName? }
- * Publishes a snapshot to disk — persists across server restarts.
+ * Publishes a snapshot to memory and disk — survives restarts without throwing on Vercel.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -73,6 +130,7 @@ export async function POST(request: NextRequest) {
       publishedAt: snapshot.publishedAt,
     });
   } catch (err: any) {
+    console.error('Error publishing share:', err);
     return NextResponse.json(
       { error: err.message || 'Failed to publish share' },
       { status: 500 }
@@ -82,7 +140,7 @@ export async function POST(request: NextRequest) {
 
 /**
  * GET /api/share?type=note&id=note-welcome
- * Returns the published snapshot from disk.
+ * Returns the published snapshot from memory or disk.
  */
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
