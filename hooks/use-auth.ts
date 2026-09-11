@@ -12,6 +12,23 @@ export interface LocalUser {
   name: string;
 }
 
+export function getCurrentUserInfo(): { id?: string; name: string; email: string } {
+  if (typeof window === 'undefined') return { name: 'Synapse User', email: 'user@synapse.local' };
+  try {
+    const email = localStorage.getItem('synapse_current_user_email');
+    const name = localStorage.getItem('synapse_current_user_name');
+    const localUserStr = localStorage.getItem('synapse_local_user');
+    const localUser = localUserStr ? JSON.parse(localUserStr) : null;
+    return {
+      id: localUser?.id || 'usr-local',
+      name: name || localUser?.name || 'Synapse User',
+      email: email || localUser?.email || 'user@synapse.local',
+    };
+  } catch {
+    return { name: 'Synapse User', email: 'user@synapse.local' };
+  }
+}
+
 export function useAuth() {
   const [user, setUser] = useState<{ id: string; email: string; name: string } | null>(null);
   const [loading, setLoading] = useState(true);

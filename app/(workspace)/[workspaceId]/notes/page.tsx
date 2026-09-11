@@ -14,6 +14,7 @@ import {
   Clock,
   ArrowRight,
   Network,
+  Users,
 } from 'lucide-react';
 
 export default function NotesPage({
@@ -114,10 +115,18 @@ export default function NotesPage({
                   </div>
                 </div>
                 <div className="flex items-center justify-between text-xs text-muted-foreground pt-2.5 border-t border-border/30">
-                  <span className="flex items-center gap-1 text-[11px]" suppressHydrationWarning>
-                    <Clock className="w-3 h-3" />
-                    {new Date(note.updated_at).toLocaleDateString()}
-                  </span>
+                  <div className="flex items-center gap-1.5 overflow-hidden">
+                    <span className="flex items-center gap-1 text-[11px] shrink-0" suppressHydrationWarning>
+                      <Clock className="w-3 h-3" />
+                      {new Date(note.updated_at).toLocaleDateString()}
+                    </span>
+                    {note.author_name && (
+                      <span className="inline-flex items-center gap-1 text-[10px] text-primary/90 bg-primary/10 px-1.5 py-0.2 rounded border border-primary/20 shrink-0 font-medium truncate max-w-[100px]">
+                        <Users className="w-2.5 h-2.5" />
+                        <span className="truncate">{note.author_name}</span>
+                      </span>
+                    )}
+                  </div>
                   <ArrowRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all text-primary" />
                 </div>
               </Link>
@@ -156,10 +165,18 @@ export default function NotesPage({
                   </div>
                 </div>
                 <div className="flex items-center justify-between text-xs text-muted-foreground pt-2.5 border-t border-border/30">
-                  <span className="flex items-center gap-1 text-[11px]" suppressHydrationWarning>
-                    <Clock className="w-3 h-3" />
-                    {new Date(note.updated_at).toLocaleDateString()}
-                  </span>
+                  <div className="flex items-center gap-1.5 overflow-hidden">
+                    <span className="flex items-center gap-1 text-[11px] shrink-0" suppressHydrationWarning>
+                      <Clock className="w-3 h-3" />
+                      {new Date(note.updated_at).toLocaleDateString()}
+                    </span>
+                    {note.author_name && (
+                      <span className="inline-flex items-center gap-1 text-[10px] text-primary/90 bg-primary/10 px-1.5 py-0.2 rounded border border-primary/20 shrink-0 font-medium truncate max-w-[100px]">
+                        <Users className="w-2.5 h-2.5" />
+                        <span className="truncate">{note.author_name}</span>
+                      </span>
+                    )}
+                  </div>
                   <ArrowRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all text-primary" />
                 </div>
               </Link>

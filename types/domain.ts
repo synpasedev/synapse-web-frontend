@@ -26,6 +26,8 @@ export interface Note {
   is_public: boolean;
   created_by: string;
   updated_by: string;
+  author_name?: string;
+  author_email?: string;
   created_at: string;
   updated_at: string;
   version: number;
@@ -52,6 +54,8 @@ export interface Block {
   sort_order: number;
   created_by: string;
   updated_by: string;
+  author_name?: string;
+  author_email?: string;
   created_at: string;
   updated_at: string;
   version: number;

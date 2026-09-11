@@ -68,7 +68,7 @@ export async function PATCH(
       updated_at: new Date().toISOString(),
       version: (existing.version || 1) + 1,
     };
-    serverStore.getNotes()[noteIndex] = updated;
+    serverStore.saveNote(updated);
     return NextResponse.json({ data: updated, message: 'Note updated successfully' });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 400 });
@@ -97,6 +97,7 @@ export async function DELETE(
   if (noteIndex === -1) {
     return NextResponse.json({ error: 'Note not found' }, { status: 404 });
   }
-  serverStore.getNotes()[noteIndex].is_archived = true;
+  const existing = serverStore.getNotes()[noteIndex];
+  serverStore.saveNote({ ...existing, is_archived: true });
   return NextResponse.json({ message: 'Note deleted successfully', id: noteId });
 }

@@ -11,6 +11,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'noteId parameter is required' }, { status: 400 });
   }
 
+  let dbBlocks: any[] = [];
   if (isSupabaseConfigured()) {
     try {
       const supabase = await createServerSupabaseClient();
@@ -21,15 +22,27 @@ export async function GET(request: NextRequest) {
         .order('sort_order', { ascending: true });
 
       if (!error && data && data.length > 0) {
-        return NextResponse.json({ data, total: data.length });
+        dbBlocks = data;
       }
     } catch (err) {
       // Fallback
     }
   }
 
-  const blocks = serverStore.getBlocks().filter((b) => b.note_id === noteId);
-  return NextResponse.json({ data: blocks, total: blocks.length });
+  const serverBlocks = serverStore.getBlocks(noteId);
+  const blockMap = new Map<string, any>();
+  for (const b of serverBlocks) {
+    blockMap.set(b.id, b);
+  }
+  for (const b of dbBlocks) {
+    blockMap.set(b.id, b);
+  }
+
+  const combined = Array.from(blockMap.values()).sort(
+    (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
+  );
+
+  return NextResponse.json({ data: combined, total: combined.length });
 }
 
 export async function POST(request: NextRequest) {
@@ -41,39 +54,34 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'noteId is required' }, { status: 400 });
     }
 
+    const formatted = blocks.map((block: any, idx: number) => ({
+      id: block.id || crypto.randomUUID(),
+      note_id: noteId,
+      workspace_id: workspaceId,
+      type: block.type || 'paragraph',
+      content: block.content || {},
+      properties: block.properties || {},
+      sort_order: block.sort_order !== undefined ? block.sort_order : (idx + 1) * 1000,
+      created_by: block.created_by || block.author_name,
+      updated_by: block.updated_by || block.author_name,
+      author_name: block.author_name,
+      author_email: block.author_email,
+      created_at: block.created_at || new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }));
+
     if (isSupabaseConfigured()) {
       try {
         const supabase = await createServerSupabaseClient();
-        const { data, error } = await supabase.from('blocks').upsert(blocks).select();
-        if (!error && data) {
-          return NextResponse.json({ data, message: 'Blocks saved successfully' });
-        }
+        await supabase.from('blocks').upsert(formatted);
       } catch (err) {
         // Fallback
       }
     }
 
-    blocks.forEach((block: any) => {
-      const existingIdx = serverStore.getBlocks().findIndex((b) => b.id === block.id);
-      const formatted = {
-        id: block.id || crypto.randomUUID(),
-        note_id: noteId,
-        workspace_id: workspaceId,
-        type: block.type || 'paragraph',
-        content: block.content || {},
-        properties: block.properties || {},
-        sort_order: block.sort_order || 1000,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      if (existingIdx >= 0) {
-        serverStore.getBlocks()[existingIdx] = formatted;
-      } else {
-        serverStore.getBlocks().push(formatted);
-      }
-    });
+    const saved = serverStore.saveBlocks(noteId, formatted, workspaceId);
 
-    return NextResponse.json({ message: 'Blocks saved successfully', count: blocks.length });
+    return NextResponse.json({ message: 'Blocks saved successfully', data: saved, count: saved.length });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 400 });
   }

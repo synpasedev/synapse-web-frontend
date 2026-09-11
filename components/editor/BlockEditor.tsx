@@ -23,7 +23,7 @@ import { blocksToTipTapDoc, tipTapDocToBlocks } from '@/lib/editor-schema';
 import { GoogleDocSyncBadge } from '@/components/sync/GoogleDocSyncBadge';
 import { useGoogleSync } from '@/hooks/use-google-sync';
 import { ShareButton } from '@/components/share/ShareButton';
-import { Star, Clock, Layers } from 'lucide-react';
+import { Star, Clock, Layers, Users } from 'lucide-react';
 
 const lowlight = createLowlight(common);
 
@@ -61,6 +61,13 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
 
   useEffect(() => {
     blocksRef.current = initialBlocks;
+    if (editorRef.current && !editorRef.current.isFocused && !debounceTimerRef.current && initialBlocks && initialBlocks.length > 0) {
+      const newDoc = blocksToTipTapDoc(initialBlocks);
+      const currentDoc = editorRef.current.getJSON();
+      if (JSON.stringify(newDoc) !== JSON.stringify(currentDoc)) {
+        editorRef.current.commands.setContent(newDoc, false);
+      }
+    }
   }, [initialBlocks]);
 
   // Compute initial document content: check synchronous local draft first, fallback to initialBlocks
@@ -255,6 +262,18 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
                 <Layers className="w-3 h-3" />
                 {wordCount} words
               </span>
+              {note.author_name && (
+                <>
+                  <span className="hidden sm:inline">•</span>
+                  <span
+                    className="flex items-center gap-1 text-[11px] text-primary bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20 font-medium"
+                    title={`Author/Editor: ${note.author_name}${note.author_email ? ` (${note.author_email})` : ''}`}
+                  >
+                    <Users className="w-3 h-3" />
+                    <span className="max-w-[120px] truncate">{note.author_name}</span>
+                  </span>
+                </>
+              )}
             </div>
           </div>
 

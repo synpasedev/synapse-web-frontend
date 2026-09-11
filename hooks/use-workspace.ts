@@ -93,6 +93,42 @@ export function useWorkspaceMembers(workspaceId: string) {
     queryFn: async (): Promise<WorkspaceMember[]> => {
       await ensureSeedData();
       if (!workspaceId) return [];
+
+      // Fetch shared remote members from server / Supabase
+      try {
+        const res = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/members`);
+        if (res.ok) {
+          const json = await res.json();
+          const remoteMembers: WorkspaceMember[] = json.data || [];
+          for (const rm of remoteMembers) {
+            if (!rm.email) continue;
+            const existing = await localDb.workspace_members
+              .where('workspace_id')
+              .equals(workspaceId)
+              .toArray();
+            const match = existing.find(
+              (m) => m.email?.trim().toLowerCase() === rm.email.trim().toLowerCase()
+            );
+            if (!match) {
+              await localDb.workspace_members.put({
+                id: rm.id || `mem-${crypto.randomUUID().slice(0, 8)}`,
+                workspace_id: workspaceId,
+                user_id: rm.user_id || `usr-${Math.random().toString(36).substring(2, 7)}`,
+                name: rm.name,
+                email: rm.email,
+                role: rm.role || 'editor',
+                avatar_url: rm.avatar_url,
+                joined_at: rm.joined_at || rm.created_at,
+                created_at: rm.created_at || new Date().toISOString(),
+                updated_at: rm.updated_at || new Date().toISOString(),
+              });
+            }
+          }
+        }
+      } catch (e) {
+        // Fallback to local
+      }
+
       const members = await localDb.workspace_members
         .where('workspace_id')
         .equals(workspaceId)
@@ -136,6 +172,8 @@ export function useWorkspaceMembers(workspaceId: string) {
       return uniqueMembers;
     },
     enabled: Boolean(workspaceId),
+    refetchInterval: 5000,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -343,7 +381,7 @@ export function useInviteMember() {
         }
       });
 
-      // Also register invite with server store asynchronously
+      // Also register invite and member with server store asynchronously
       try {
         const ws = await localDb.workspaces.get(workspaceId);
         fetch('/api/invite', {
@@ -358,6 +396,14 @@ export function useInviteMember() {
             },
           }),
         }).catch((e) => console.warn('[useInviteMember] Server sync notice:', e.message));
+
+        if (newMember) {
+          fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/members`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ member: newMember }),
+          }).catch(() => {});
+        }
       } catch {}
 
       return { invite: newInvite, member: newMember };
@@ -584,6 +630,14 @@ export function useBatchInviteMembers() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ invites: enrichedBatch }),
           }).catch((e) => console.warn('[useBatchInviteMembers] Server sync notice:', e.message));
+
+          for (const nm of newMembers) {
+            fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/members`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ member: nm }),
+            }).catch(() => {});
+          }
         } catch {}
       }
 
@@ -819,6 +873,12 @@ export function useAcceptInvite() {
             updated_at: now,
           };
           await localDb.workspace_members.put(newMember);
+
+          fetch(`/api/workspaces/${encodeURIComponent(targetInvite.workspace_id)}/members`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ member: newMember }),
+          }).catch(() => {});
         }
 
         let ws = await localDb.workspaces.get(targetInvite.workspace_id);
