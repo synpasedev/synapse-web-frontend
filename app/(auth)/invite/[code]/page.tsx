@@ -1,18 +1,25 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import React, { useState, useEffect, Suspense } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAcceptInvite } from '@/hooks/use-workspace';
 import { localDb } from '@/lib/dexie/db';
-import { Workspace, WorkspaceInvite } from '@/types/domain';
-import { Users, ArrowRight, Shield, CheckCircle2, AlertCircle, Sparkles } from 'lucide-react';
+import { Workspace, WorkspaceInvite, WorkspaceRole } from '@/types/domain';
+import { ArrowRight, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import Link from 'next/link';
 
-export default function InvitePage() {
+function InviteContent() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const router = useRouter();
   const code = (params?.code as string) || '';
+
+  const paramWs = searchParams?.get('ws') || '';
+  const paramName = searchParams?.get('name') || '';
+  const paramIcon = searchParams?.get('icon') || '';
+  const paramRole = (searchParams?.get('role') as WorkspaceRole) || 'editor';
+  const paramEmail = searchParams?.get('email') || '';
 
   const [loading, setLoading] = useState(true);
   const [invite, setInvite] = useState<WorkspaceInvite | null>(null);
@@ -29,19 +36,121 @@ export default function InvitePage() {
       if (!code) return;
       try {
         setLoading(true);
-        // Find invite by code
+        setError(null);
+        const cleanCode = code.trim().toLowerCase();
+
+        // 1. If enriched query parameters exist in URL, hydrate immediately
+        if (paramWs || paramName) {
+          const now = new Date().toISOString();
+          const oneWeekLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+          const recoveredInvite: WorkspaceInvite = {
+            id: `inv-${cleanCode.replace(/^syn-/, '')}`,
+            workspace_id: paramWs || 'ws-default-synapse',
+            email: paramEmail || undefined,
+            role: paramRole,
+            invite_code: cleanCode,
+            created_by: 'system',
+            created_at: now,
+            expires_at: oneWeekLater,
+            status: 'pending',
+          };
+
+          const recoveredWorkspace: Workspace = {
+            id: paramWs || 'ws-default-synapse',
+            name: paramName || 'Collaborative Workspace',
+            slug: (paramName || 'workspace').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''),
+            icon: paramIcon || '👥',
+            owner_id: 'system',
+            type: 'shared',
+            role: paramRole,
+            created_at: now,
+            updated_at: now,
+          };
+
+          // Cache locally in Dexie
+          await localDb.transaction('rw', [localDb.workspace_invites, localDb.workspaces], async () => {
+            await localDb.workspace_invites.put(recoveredInvite);
+            await localDb.workspaces.put(recoveredWorkspace);
+          });
+
+          // Sync to server API in the background
+          fetch('/api/invite', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              invite: {
+                ...recoveredInvite,
+                workspace_name: recoveredWorkspace.name,
+                workspace_icon: recoveredWorkspace.icon,
+                workspace_slug: recoveredWorkspace.slug,
+              },
+            }),
+          }).catch(() => {});
+
+          setInvite(recoveredInvite);
+          setWorkspace(recoveredWorkspace);
+          if (paramEmail) setEmail(paramEmail);
+          setLoading(false);
+          return;
+        }
+
+        // 2. Check local Dexie IndexedDB
         const allInvites = await localDb.workspace_invites.toArray();
-        const found = allInvites.find(
-          (i) => i.invite_code.toLowerCase() === code.trim().toLowerCase()
+        let found = allInvites.find(
+          (i) => i.invite_code && i.invite_code.toLowerCase() === cleanCode
         );
+
+        let ws: Workspace | null = null;
+        if (found) {
+          ws = (await localDb.workspaces.get(found.workspace_id)) || null;
+        }
+
+        // 3. If not found in IndexedDB or workspace missing, query central server API
+        if (!found || !ws) {
+          try {
+            const res = await fetch(`/api/invite/${encodeURIComponent(cleanCode)}`);
+            if (res.ok) {
+              const data = await res.json();
+              if (data.invite) {
+                found = data.invite;
+
+                // Sync invite to local Dexie
+                await localDb.workspace_invites.put(found!);
+
+                // Sync workspace to local Dexie
+                const wsData = data.workspace;
+                const now = new Date().toISOString();
+                const fetchedWs: Workspace = {
+                  id: wsData?.id || found!.workspace_id,
+                  name: wsData?.name || 'Workspace',
+                  slug: (wsData?.name || 'workspace').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+                  icon: wsData?.icon || '👥',
+                  owner_id: found!.created_by || 'system',
+                  type: 'shared',
+                  role: found!.role || 'editor',
+                  created_at: now,
+                  updated_at: now,
+                };
+                ws = fetchedWs;
+                await localDb.workspaces.put(fetchedWs);
+              }
+            } else {
+              const errJson = await res.json().catch(() => ({}));
+              if (!found) {
+                setError(errJson.error || 'Invitation link is invalid or has expired.');
+                return;
+              }
+            }
+          } catch (networkErr) {
+            console.warn('[InvitePage] Server fetch fallback error:', networkErr);
+          }
+        }
 
         if (found) {
           setInvite(found);
-          const ws = await localDb.workspaces.get(found.workspace_id);
-          setWorkspace(ws || null);
-          if (found.email) {
-            setEmail(found.email);
-          }
+          if (ws) setWorkspace(ws);
+          if (found.email) setEmail(found.email);
         } else {
           setError('Invitation link is invalid or has expired.');
         }
@@ -51,15 +160,22 @@ export default function InvitePage() {
         setLoading(false);
       }
     }
+
     loadInvite();
-  }, [code]);
+  }, [code, paramWs, paramName, paramIcon, paramRole, paramEmail]);
 
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       setError(null);
-      const userEmail = email.trim() || 'collaborator@synapse.local';
+      const userEmail = email.trim() || paramEmail || 'collaborator@synapse.local';
       const userName = name.trim() || 'New Collaborator';
+
+      // Persist user preference for local profile
+      try {
+        localStorage.setItem('synapse_current_user_email', userEmail);
+        localStorage.setItem('synapse_current_user_name', userName);
+      } catch {}
 
       const result = await acceptInvite({
         code,
@@ -69,7 +185,7 @@ export default function InvitePage() {
 
       setJoined(true);
       confetti({
-        particleCount: 50,
+        particleCount: 60,
         spread: 70,
         origin: { y: 0.6 },
       });
@@ -138,7 +254,7 @@ export default function InvitePage() {
         <p className="text-xs text-muted-foreground">
           You've been invited to collaborate as an{' '}
           <span className="font-semibold text-indigo-400 uppercase tracking-wider">
-            {invite?.role || 'editor'}
+            {invite?.role || paramRole || 'editor'}
           </span>
         </p>
       </div>
@@ -182,8 +298,17 @@ export default function InvitePage() {
           disabled={isJoining}
           className="w-full py-2.5 text-xs font-bold text-primary-foreground bg-primary hover:bg-primary/90 disabled:opacity-50 rounded-xl shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
         >
-          <span>{isJoining ? 'Joining...' : 'Accept Invite & Join Workspace'}</span>
-          <ArrowRight className="w-3.5 h-3.5" />
+          {isJoining ? (
+            <>
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <span>Joining Workspace...</span>
+            </>
+          ) : (
+            <>
+              <span>Accept Invite & Join Workspace</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </>
+          )}
         </button>
       </form>
 
@@ -193,5 +318,20 @@ export default function InvitePage() {
         </Link>
       </div>
     </div>
+  );
+}
+
+export default function InvitePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="bg-card border border-border/80 rounded-2xl p-8 shadow-xl text-center space-y-4">
+          <div className="w-12 h-12 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-sm text-muted-foreground">Loading invitation...</p>
+        </div>
+      }
+    >
+      <InviteContent />
+    </Suspense>
   );
 }

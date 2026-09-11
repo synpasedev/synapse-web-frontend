@@ -6,6 +6,9 @@ export interface SendInviteEmailParams {
   inviteCode?: string;
   workspaceName?: string;
   senderName?: string;
+  workspaceId?: string;
+  workspaceIcon?: string;
+  role?: string;
 }
 
 export interface EmailSendResult {
@@ -13,6 +16,35 @@ export interface EmailSendResult {
   success: boolean;
   messageId?: string;
   error?: string;
+}
+
+/**
+ * Helper to construct an enriched, self-healing invite URL with embedded workspace metadata.
+ */
+export function buildInviteUrl({
+  inviteCode,
+  workspaceId,
+  workspaceName,
+  workspaceIcon,
+  role,
+  email,
+}: {
+  inviteCode: string;
+  workspaceId?: string;
+  workspaceName?: string;
+  workspaceIcon?: string;
+  role?: string;
+  email?: string;
+}): string {
+  const siteUrl = getPublicSiteUrl();
+  const params = new URLSearchParams();
+  if (workspaceId) params.set('ws', workspaceId);
+  if (workspaceName) params.set('name', workspaceName);
+  if (workspaceIcon) params.set('icon', workspaceIcon);
+  if (role) params.set('role', role);
+  if (email) params.set('email', email);
+  const qs = params.toString();
+  return `${siteUrl}/invite/${inviteCode}${qs ? `?${qs}` : ''}`;
 }
 
 /**
@@ -60,11 +92,20 @@ export function getRecipientName(email: string): string {
     .join(' ');
 }
 
-export function generateInviteEmailContent(email: string, inviteCode?: string, workspaceName?: string) {
+export function generateInviteEmailContent(
+  email: string,
+  inviteCode?: string,
+  workspaceName?: string,
+  workspaceId?: string,
+  workspaceIcon?: string,
+  role?: string
+) {
   const username = getRecipientName(email);
   const siteUrl = getPublicSiteUrl();
   const loginUrl = `${siteUrl}/login`;
-  const inviteUrl = inviteCode ? `${siteUrl}/invite/${inviteCode}` : loginUrl;
+  const inviteUrl = inviteCode
+    ? buildInviteUrl({ inviteCode, workspaceId, workspaceName, workspaceIcon, role, email })
+    : loginUrl;
 
 
   const plainText = `Hey ${username}, hope you’re doing well!
@@ -161,25 +202,28 @@ Subhadeep`;
   return { plainText, html, subject: 'Invitation to explore Synapse' };
 }
 
-/**
- * Sends a single invite email via Nodemailer.
- */
 export async function sendInviteEmail({
   to,
   inviteCode,
   workspaceName,
-}: {
-  to: string;
-  inviteCode?: string;
-  workspaceName?: string;
-}): Promise<EmailSendResult> {
-  const cleanTo = to.trim().toLowerCase();
+  workspaceId,
+  workspaceIcon,
+  role,
+}: SendInviteEmailParams): Promise<EmailSendResult> {
+  const cleanTo = (Array.isArray(to) ? to[0] : to).trim().toLowerCase();
   try {
     const transporter = getMailTransporter();
     const user = process.env.SMTP_USER || process.env.GMAIL_USER || process.env.EMAIL_USER;
     const from = process.env.EMAIL_FROM || process.env.SMTP_FROM || `"Subhadeep via Synapse" <${user}>`;
 
-    const { plainText, html, subject } = generateInviteEmailContent(cleanTo, inviteCode, workspaceName);
+    const { plainText, html, subject } = generateInviteEmailContent(
+      cleanTo,
+      inviteCode,
+      workspaceName,
+      workspaceId,
+      workspaceIcon,
+      role
+    );
 
     const info = await transporter.sendMail({
       from,

@@ -343,6 +343,23 @@ export function useInviteMember() {
         }
       });
 
+      // Also register invite with server store asynchronously
+      try {
+        const ws = await localDb.workspaces.get(workspaceId);
+        fetch('/api/invite', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            invite: {
+              ...newInvite,
+              workspace_name: ws?.name || 'Workspace',
+              workspace_icon: ws?.icon || '👥',
+              workspace_slug: ws?.slug,
+            },
+          }),
+        }).catch((e) => console.warn('[useInviteMember] Server sync notice:', e.message));
+      } catch {}
+
       return { invite: newInvite, member: newMember };
     },
     onSuccess: (_, variables) => {
@@ -552,6 +569,24 @@ export function useBatchInviteMembers() {
         if (newMembers.length > 0) await localDb.workspace_members.bulkPut(newMembers);
       });
 
+      // Also register batch invites with server store asynchronously
+      if (newInvites.length > 0) {
+        try {
+          const ws = await localDb.workspaces.get(workspaceId);
+          const enrichedBatch = newInvites.map((inv) => ({
+            ...inv,
+            workspace_name: ws?.name || 'Workspace',
+            workspace_icon: ws?.icon || '👥',
+            workspace_slug: ws?.slug,
+          }));
+          fetch('/api/invite', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ invites: enrichedBatch }),
+          }).catch((e) => console.warn('[useBatchInviteMembers] Server sync notice:', e.message));
+        } catch {}
+      }
+
       return { added, skippedAlreadyMember, skippedAlreadyInvited };
     },
     onSuccess: (_, variables) => {
@@ -710,37 +745,74 @@ export function useAcceptInvite() {
       userName?: string;
     }) => {
       await ensureSeedData();
-      const invite = await localDb.workspace_invites
+      const cleanCode = code.trim().toLowerCase();
+
+      // 1. Try local IndexedDB
+      let invite = await localDb.workspace_invites
         .where('invite_code')
         .equals(code)
         .first();
 
       if (!invite) {
-        // Fallback: check if any invite matches with prefix or code
         const allInvites = await localDb.workspace_invites.toArray();
-        const found = allInvites.find((i) => i.invite_code.toLowerCase() === code.trim().toLowerCase());
-        if (!found) {
-          throw new Error('Invalid or expired invitation link');
-        }
-        return joinWorkspace(found, userEmail);
+        invite = allInvites.find((i) => i.invite_code.toLowerCase() === cleanCode);
       }
 
-      return joinWorkspace(invite, userEmail);
+      let serverWorkspaceData: any = null;
 
-      async function joinWorkspace(targetInvite: WorkspaceInvite, email: string) {
+      // 2. Fallback: query server API if not found locally
+      if (!invite) {
+        try {
+          const res = await fetch(`/api/invite/${encodeURIComponent(cleanCode)}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.invite) {
+              invite = data.invite;
+              serverWorkspaceData = data.workspace;
+              await localDb.workspace_invites.put(invite!);
+            }
+          }
+        } catch (apiErr) {
+          console.warn('[useAcceptInvite] Server lookup error:', apiErr);
+        }
+      }
+
+      if (!invite) {
+        throw new Error('Invalid or expired invitation link');
+      }
+
+      return joinWorkspace(invite, userEmail, userName, serverWorkspaceData);
+
+      async function joinWorkspace(
+        targetInvite: WorkspaceInvite,
+        email: string,
+        name: string,
+        wsData?: any
+      ) {
         const now = new Date().toISOString();
+
+        // Notify server of acceptance asynchronously
+        fetch(`/api/invite/${encodeURIComponent(cleanCode)}/accept`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userEmail: email, userName: name }),
+        }).catch(() => {});
+
         const existingMembers = await localDb.workspace_members
           .where('workspace_id')
           .equals(targetInvite.workspace_id)
           .toArray();
 
-        const alreadyJoined = existingMembers.find((m) => m.email.toLowerCase() === email.toLowerCase());
+        const alreadyJoined = existingMembers.find(
+          (m) => m.email && m.email.toLowerCase() === email.toLowerCase()
+        );
 
         if (!alreadyJoined) {
           const newMember: WorkspaceMember = {
             id: `mem-${crypto.randomUUID().slice(0, 8)}`,
             workspace_id: targetInvite.workspace_id,
             user_id: `usr-${Math.random().toString(36).substring(2, 7)}`,
+            name: name || undefined,
             role: targetInvite.role,
             email,
             created_at: now,
@@ -749,7 +821,53 @@ export function useAcceptInvite() {
           await localDb.workspace_members.put(newMember);
         }
 
-        const ws = await localDb.workspaces.get(targetInvite.workspace_id);
+        let ws = await localDb.workspaces.get(targetInvite.workspace_id);
+
+        // If workspace does not exist in local IndexedDB, create it so navigation works smoothly
+        if (!ws) {
+          const wsName = wsData?.name || (targetInvite as any).workspace_name || 'Collaborative Workspace';
+          const wsIcon = wsData?.icon || (targetInvite as any).workspace_icon || '👥';
+          ws = {
+            id: targetInvite.workspace_id,
+            name: wsName,
+            slug: wsName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'workspace',
+            icon: wsIcon,
+            owner_id: targetInvite.created_by || 'local-user-1',
+            type: 'shared',
+            role: targetInvite.role,
+            members_count: 2,
+            created_at: now,
+            updated_at: now,
+          };
+          await localDb.workspaces.put(ws);
+        }
+
+        // Ensure at least one welcome note exists for this workspace
+        const notesCount = await localDb.notes
+          .where('workspace_id')
+          .equals(targetInvite.workspace_id)
+          .count();
+
+        if (notesCount === 0) {
+          const starterNote: Note = {
+            id: `note-${crypto.randomUUID().slice(0, 8)}`,
+            workspace_id: targetInvite.workspace_id,
+            parent_id: null,
+            title: `Welcome to ${ws.name} ⚡`,
+            icon: ws.icon || '📝',
+            cover_url: null,
+            is_favorite: true,
+            is_archived: false,
+            is_public: false,
+            created_by: 'system',
+            updated_by: 'system',
+            created_at: now,
+            updated_at: now,
+            version: 1,
+          };
+          await localDb.notes.put(starterNote);
+        }
+
         return { workspaceId: targetInvite.workspace_id, workspace: ws };
       }
     },
@@ -757,6 +875,7 @@ export function useAcceptInvite() {
       if (data?.workspaceId) {
         queryClient.invalidateQueries({ queryKey: ['workspace', data.workspaceId] });
         queryClient.invalidateQueries({ queryKey: ['workspace_members', data.workspaceId] });
+        queryClient.invalidateQueries({ queryKey: ['notes', data.workspaceId] });
       }
       queryClient.invalidateQueries({ queryKey: ['workspaces'] });
     },

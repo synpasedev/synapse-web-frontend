@@ -175,7 +175,10 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
         body: JSON.stringify({
           recipients,
           inviteCodes,
+          workspaceId,
           workspaceName: workspace?.name,
+          workspaceIcon: workspace?.icon,
+          role,
         }),
       });
 
@@ -222,6 +225,21 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
     } finally {
       setIsSendingEmail(false);
     }
+  };
+
+  const getEnrichedInviteUrl = (code: string, targetEmail?: string) => {
+    const isLocalhost =
+      typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    const base = isLocalhost ? window.location.origin : getPublicSiteUrl();
+    const params = new URLSearchParams();
+    if (workspaceId) params.set('ws', workspaceId);
+    if (workspace?.name) params.set('name', workspace.name);
+    if (workspace?.icon) params.set('icon', workspace.icon);
+    if (role) params.set('role', role);
+    if (targetEmail) params.set('email', targetEmail);
+    const qs = params.toString();
+    return `${base}/invite/${code}${qs ? `?${qs}` : ''}`;
   };
 
   const handleInvite = async (e: React.FormEvent) => {
@@ -302,8 +320,8 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
   };
 
 
-  const handleCopyLink = (code: string) => {
-    const fullUrl = getPublicSiteUrl(`/invite/${code}`);
+  const handleCopyLink = (code: string, targetEmail?: string) => {
+    const fullUrl = getEnrichedInviteUrl(code, targetEmail);
     navigator.clipboard.writeText(fullUrl);
     setCopiedCode(code);
     setTimeout(() => {
@@ -312,7 +330,7 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
   };
 
   const handleSendEmailApp = (targetEmail: string, code?: string) => {
-    const inviteUrl = code ? getPublicSiteUrl(`/invite/${code}`) : undefined;
+    const inviteUrl = code ? getEnrichedInviteUrl(code, targetEmail) : undefined;
     const body = buildEmailTemplate(targetEmail, inviteUrl);
     const subject = 'Invitation to explore Synapse';
     const mailto = `mailto:${encodeURIComponent(targetEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
@@ -320,7 +338,7 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
   };
 
   const handleCopyTemplateText = (targetEmail: string, code?: string) => {
-    const inviteUrl = code ? getPublicSiteUrl(`/invite/${code}`) : undefined;
+    const inviteUrl = code ? getEnrichedInviteUrl(code, targetEmail) : undefined;
     const body = buildEmailTemplate(targetEmail, inviteUrl);
     navigator.clipboard.writeText(body);
     setCopiedTemplate(true);
@@ -787,14 +805,14 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
                 <div className="flex items-center gap-2 p-2 bg-secondary/50 border border-border/60 rounded-xl">
                   <div className="flex-1 font-mono text-[11px] text-muted-foreground truncate px-1">
                     {latestInvite
-                      ? getPublicSiteUrl(`/invite/${latestInvite.invite_code}`)
+                      ? getEnrichedInviteUrl(latestInvite.invite_code, latestInvite.email)
                       : 'Generate an invite link to share with your team'}
                   </div>
 
                   {latestInvite ? (
                     <button
                       type="button"
-                      onClick={() => handleCopyLink(latestInvite.invite_code)}
+                      onClick={() => handleCopyLink(latestInvite.invite_code, latestInvite.email)}
                       className={`px-3 py-1.5 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
                         copiedCode === latestInvite.invite_code
                           ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
@@ -900,7 +918,7 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
                           )}
                           <button
                             type="button"
-                            onClick={() => handleCopyLink(inv.invite_code)}
+                            onClick={() => handleCopyLink(inv.invite_code, inv.email)}
                             className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors cursor-pointer"
                             title="Copy link"
                           >

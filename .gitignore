@@ -45,3 +45,4 @@ next-env.d.ts
 
 # synapse local share snapshots (file-based persistence)
 .synapse-shares/
+.synapse-invites/
