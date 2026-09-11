@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Script from 'next/script';
 import './globals.css';
 import { QueryProvider } from '@/components/providers/QueryProvider';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
@@ -77,13 +78,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: themeAntiFlashScript }} />
-      </head>
       <body
         className="antialiased bg-background text-foreground min-h-screen"
         suppressHydrationWarning
       >
+        <Script
+          id="theme-anti-flash"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{ __html: themeAntiFlashScript }}
+        />
         <QueryProvider>
           <ThemeProvider>{children}</ThemeProvider>
         </QueryProvider>
