@@ -1,7 +1,7 @@
 import { AIProvider } from './provider';
 
 export class GeminiProvider implements AIProvider {
-  name = 'Google Gemini (1.5 Flash)';
+  name = 'Google Gemini';
   private apiKey: string;
   private model: string;
 
@@ -10,15 +10,11 @@ export class GeminiProvider implements AIProvider {
       process.env.GOOGLE_API_KEY ||
       process.env.GOOGLE_AI_API_KEY ||
       '',
-    model = process.env.GEMINI_MODEL || 'gemini-1.5-flash'
+    model = process.env.GEMINI_MODEL || 'gemini-3.6-flash'
   ) {
     this.apiKey = apiKey.trim();
     this.model = model.trim();
-    if (this.model.includes('2.0')) {
-      this.name = 'Google Gemini (2.0 Flash)';
-    } else if (this.model.includes('pro')) {
-      this.name = 'Google Gemini Pro';
-    }
+    this.name = `Google Gemini (${this.model.replace('models/', '').replace(/^gemini-/, '')})`;
   }
 
   private async callGemini(systemPrompt: string, userPrompt: string): Promise<string> {
@@ -28,53 +24,82 @@ export class GeminiProvider implements AIProvider {
       );
     }
 
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-      this.model
-    )}:generateContent?key=${encodeURIComponent(this.apiKey)}`;
+    const candidateModels = Array.from(
+      new Set([
+        this.model,
+        'gemini-3.6-flash',
+        'gemini-3.5-flash',
+        'gemini-3.5-flash-lite',
+        'gemini-2.5-flash',
+      ])
+    ).filter(Boolean);
 
-    const payload = {
-      system_instruction: {
-        parts: [{ text: systemPrompt }],
-      },
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: userPrompt }],
-        },
-      ],
-      generationConfig: {
-        temperature: 0.3,
-        maxOutputTokens: 2048,
-      },
-    };
+    let lastError: Error | null = null;
 
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!res.ok) {
-      const errorText = await res.text();
-      let parsedMessage = errorText;
+    for (const modelToTry of candidateModels) {
       try {
-        const errorJson = JSON.parse(errorText);
-        parsedMessage = errorJson.error?.message || errorText;
-      } catch {}
-      throw new Error(`Gemini API Error (${res.status}): ${parsedMessage}`);
+        const cleanModel = modelToTry.replace(/^models\//, '');
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+          cleanModel
+        )}:generateContent?key=${encodeURIComponent(this.apiKey)}`;
+
+        const payload = {
+          system_instruction: {
+            parts: [{ text: systemPrompt }],
+          },
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: userPrompt }],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: 2048,
+          },
+        };
+
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+
+        if (!res.ok) {
+          const errorText = await res.text();
+          let parsedMessage = errorText;
+          try {
+            const errorJson = JSON.parse(errorText);
+            parsedMessage = errorJson.error?.message || errorText;
+          } catch {}
+
+          // If model is deprecated or not found (404) or busy (503), try next candidate
+          if (res.status === 404 || res.status === 503) {
+            lastError = new Error(`Gemini (${cleanModel}): ${parsedMessage}`);
+            continue;
+          }
+
+          throw new Error(`Gemini API Error (${res.status}): ${parsedMessage}`);
+        }
+
+        const data = await res.json();
+        const candidate = data.candidates?.[0];
+        const text = candidate?.content?.parts?.[0]?.text?.trim();
+
+        if (text) {
+          return text;
+        }
+      } catch (err: any) {
+        lastError = err;
+        if (candidateModels.indexOf(modelToTry) === candidateModels.length - 1) {
+          throw err;
+        }
+      }
     }
 
-    const data = await res.json();
-    const candidate = data.candidates?.[0];
-    const text = candidate?.content?.parts?.[0]?.text?.trim();
-
-    if (!text) {
-      throw new Error('Gemini returned an empty response. Please check your prompt.');
-    }
-
-    return text;
+    throw lastError || new Error('All Gemini candidate models failed to respond.');
   }
 
   async summarize(text: string): Promise<string> {
