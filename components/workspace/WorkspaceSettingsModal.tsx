@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useUIStore } from '@/stores/use-ui-store';
 import { useWorkspace, useWorkspaces, useUpdateWorkspace, useDeleteWorkspace } from '@/hooks/use-workspace';
 import { WorkspaceType } from '@/types/domain';
-import { X, Settings, Trash2, Lock, Users, Save, AlertTriangle } from 'lucide-react';
+import { X, Settings, Trash2, Lock, Users, Save, AlertTriangle, Download, Upload, Database, Check } from 'lucide-react';
+import { localDb } from '@/lib/dexie/db';
 
 const POPULAR_ICONS = ['🚀', '💼', '⚡', '🧠', '💡', '🎨', '🎯', '🌐', '🛠️', '📚', '🔬', '🪐'];
 
@@ -22,6 +23,9 @@ export const WorkspaceSettingsModal: React.FC<{ workspaceId: string }> = ({ work
   const [icon, setIcon] = useState(workspace?.icon || '🧠');
   const [type, setType] = useState<WorkspaceType>(workspace?.type || 'private');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [backupStatus, setBackupStatus] = useState('');
 
   // Sync internal state when modal opens or workspace loads
   React.useEffect(() => {
@@ -72,6 +76,83 @@ export const WorkspaceSettingsModal: React.FC<{ workspaceId: string }> = ({ work
       }
     } catch (err) {
       console.error('Failed to delete workspace:', err);
+    }
+  };
+
+  const handleExportBackup = async () => {
+    setIsExporting(true);
+    setBackupStatus('');
+    try {
+      const backup = {
+        version: 4,
+        synapse_app: 'synapse',
+        exportedAt: new Date().toISOString(),
+        workspaces: await localDb.workspaces.toArray(),
+        workspace_members: await localDb.workspace_members.toArray(),
+        notes: await localDb.notes.toArray(),
+        blocks: await localDb.blocks.toArray(),
+        links: await localDb.links.toArray(),
+        templates: await localDb.templates.toArray(),
+      };
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `synapse-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setBackupStatus(`Exported ${backup.notes.length} note(s)!`);
+      setTimeout(() => setBackupStatus(''), 4000);
+    } catch (err: any) {
+      console.error('Export failed:', err);
+      alert('Failed to export backup: ' + err.message);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleImportBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    setBackupStatus('');
+    try {
+      const text = await file.text();
+      const backup = JSON.parse(text);
+
+      if (!backup.notes && !backup.workspaces) {
+        throw new Error('Invalid Synapse backup file format.');
+      }
+
+      await localDb.transaction(
+        'rw',
+        [
+          localDb.workspaces,
+          localDb.workspace_members,
+          localDb.notes,
+          localDb.blocks,
+          localDb.links,
+          localDb.templates,
+        ],
+        async () => {
+          if (backup.workspaces?.length) await localDb.workspaces.bulkPut(backup.workspaces);
+          if (backup.workspace_members?.length) await localDb.workspace_members.bulkPut(backup.workspace_members);
+          if (backup.notes?.length) await localDb.notes.bulkPut(backup.notes);
+          if (backup.blocks?.length) await localDb.blocks.bulkPut(backup.blocks);
+          if (backup.links?.length) await localDb.links.bulkPut(backup.links);
+          if (backup.templates?.length) await localDb.templates.bulkPut(backup.templates);
+        }
+      );
+
+      setBackupStatus('Imported successfully! Reloading...');
+      setTimeout(() => {
+        window.location.reload();
+      }, 800);
+    } catch (err: any) {
+      console.error('Import failed:', err);
+      alert('Failed to import backup: ' + err.message);
+      setIsImporting(false);
     }
   };
 
@@ -180,6 +261,53 @@ export const WorkspaceSettingsModal: React.FC<{ workspaceId: string }> = ({ work
               onChange={(e) => setName(e.target.value)}
               className="w-full px-3 py-2 text-sm bg-secondary/50 border border-border/60 rounded-xl text-foreground placeholder:text-muted-foreground/60 focus:outline-hidden focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
             />
+          </div>
+
+          {/* Data Backup & Migration */}
+          <div className="pt-4 border-t border-border/40">
+            <div className="p-3.5 bg-secondary/30 border border-border/60 rounded-xl space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Database className="w-4 h-4 text-indigo-400" />
+                  <div>
+                    <div className="text-xs font-bold text-foreground">Data Backup & Migration</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      Export all notes to transfer between localhost and deployed sites, or create a safe backup.
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleExportBackup}
+                  disabled={isExporting}
+                  className="px-3 py-1.5 text-xs font-semibold bg-secondary hover:bg-secondary/80 border border-border/70 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer text-foreground disabled:opacity-50"
+                >
+                  <Download className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>{isExporting ? 'Exporting...' : 'Export Backup (.json)'}</span>
+                </button>
+
+                <label className="px-3 py-1.5 text-xs font-semibold bg-indigo-600/15 hover:bg-indigo-600/25 text-indigo-300 border border-indigo-500/30 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer">
+                  <Upload className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>{isImporting ? 'Restoring...' : 'Import Backup'}</span>
+                  <input
+                    type="file"
+                    accept=".json"
+                    onChange={handleImportBackup}
+                    disabled={isImporting}
+                    className="hidden"
+                  />
+                </label>
+
+                {backupStatus && (
+                  <span className="text-[11px] font-medium text-emerald-400 flex items-center gap-1 animate-in fade-in">
+                    <Check className="w-3 h-3" /> {backupStatus}
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Danger Zone */}
