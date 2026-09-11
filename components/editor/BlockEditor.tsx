@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import TaskList from '@tiptap/extension-task-list';
@@ -54,6 +54,13 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
   const { mutate: saveBlocks } = useMutateBlocks(note.id);
   const { mutate: updateNote } = useUpdateNote();
 
+  const [title, setTitle] = useState(note.title || '');
+  const titleDebounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    setTitle(note.title || '');
+  }, [note.id, note.title]);
+
   const blocksRef = useRef<Block[]>(initialBlocks);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const onUserEditRef = useRef<() => void>(() => {});
@@ -91,6 +98,14 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
 
   // Immediate synchronous flush for unmount / tab close
   const flushPendingSave = useCallback(() => {
+    if (titleDebounceRef.current) {
+      clearTimeout(titleDebounceRef.current);
+      titleDebounceRef.current = null;
+      updateNote({
+        id: note.id,
+        updates: { title },
+      });
+    }
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = null;
@@ -108,7 +123,7 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
       saveBlocks(blocks);
       extractLinksFromEditor(note.workspace_id, note.id, json);
     }
-  }, [note, saveBlocks, draftKey]);
+  }, [note, saveBlocks, updateNote, title, draftKey]);
 
   const handleUpdate = useCallback(
     ({ editor }: { editor: any }) => {
@@ -213,11 +228,33 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
   }, [flushPendingSave]);
 
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    updateNote({
-      id: note.id,
-      updates: { title: e.target.value },
-    });
-    onUserEditRef.current();
+    const newTitle = e.target.value;
+    setTitle(newTitle);
+
+    if (titleDebounceRef.current) {
+      clearTimeout(titleDebounceRef.current);
+    }
+
+    titleDebounceRef.current = setTimeout(() => {
+      titleDebounceRef.current = null;
+      updateNote({
+        id: note.id,
+        updates: { title: newTitle },
+      });
+      onUserEditRef.current();
+    }, 250);
+  };
+
+  const handleTitleBlur = () => {
+    if (titleDebounceRef.current) {
+      clearTimeout(titleDebounceRef.current);
+      titleDebounceRef.current = null;
+      updateNote({
+        id: note.id,
+        updates: { title },
+      });
+      onUserEditRef.current();
+    }
   };
 
   const handleToggleFavorite = () => {
@@ -331,10 +368,11 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
         {/* Note Title Input */}
         <input
           type="text"
-          value={note.title}
+          value={title}
           onChange={handleTitleChange}
+          onBlur={handleTitleBlur}
           placeholder="Untitled Note"
-          className="w-full text-2xl sm:text-3xl font-bold bg-transparent border-none outline-none text-heading-1 placeholder:text-muted-foreground/30 tracking-tight"
+          className="w-full text-2xl sm:text-3xl font-bold bg-transparent border-none outline-none text-foreground placeholder:text-muted-foreground/30 tracking-tight cursor-text focus:ring-0"
         />
       </div>
 

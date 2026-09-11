@@ -187,9 +187,22 @@ export function useUpdateNote() {
 
       return updated;
     },
+    onMutate: async ({ id, updates }) => {
+      await queryClient.cancelQueries({ queryKey: ['note', id] });
+      const previousNote = queryClient.getQueryData<Note>(['note', id]);
+      if (previousNote) {
+        queryClient.setQueryData<Note>(['note', id], { ...previousNote, ...updates });
+      }
+      return { previousNote };
+    },
     onSuccess: (updated) => {
+      queryClient.setQueryData(['note', updated.id], updated);
       queryClient.invalidateQueries({ queryKey: ['notes', updated.workspace_id] });
-      queryClient.invalidateQueries({ queryKey: ['note', updated.id] });
+    },
+    onError: (_err, { id }, context) => {
+      if (context?.previousNote) {
+        queryClient.setQueryData(['note', id], context.previousNote);
+      }
     },
   });
 }
