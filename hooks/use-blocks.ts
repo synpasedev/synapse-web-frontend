@@ -4,6 +4,7 @@ import { syncEngine } from '@/lib/dexie/sync-engine';
 import { ensureSeedData } from '@/lib/dexie/seed';
 import { getCurrentUserInfo } from '@/hooks/use-auth';
 import { Block } from '@/types/domain';
+import { broadcastTabSync } from '@/lib/dexie/tab-sync';
 
 export function useBlocks(noteId: string) {
   return useQuery({
@@ -136,6 +137,7 @@ export function useMutateBlocks(noteId: string) {
       if (newBlocks) {
         queryClient.setQueryData(['blocks', noteId], newBlocks);
       }
+      broadcastTabSync({ type: 'BLOCKS_MUTATED', noteId });
     },
     onError: (_err, _newBlocks, context) => {
       if (context?.previousBlocks) {

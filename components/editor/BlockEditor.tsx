@@ -122,6 +122,9 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
       blocksRef.current = blocks;
       saveBlocks(blocks);
       extractLinksFromEditor(note.workspace_id, note.id, json);
+      try {
+        localStorage.removeItem(draftKey);
+      } catch (e) {}
     }
   }, [note, saveBlocks, updateNote, title, draftKey]);
 
@@ -147,6 +150,9 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
 
         saveBlocks(blocks);
         extractLinksFromEditor(note.workspace_id, note.id, json);
+        try {
+          localStorage.removeItem(draftKey);
+        } catch (e) {}
         onUserEditRef.current();
       }, 150);
     },

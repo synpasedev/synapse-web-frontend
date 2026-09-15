@@ -4,6 +4,7 @@ import { syncEngine } from '@/lib/dexie/sync-engine';
 import { ensureSeedData } from '@/lib/dexie/seed';
 import { getCurrentUserInfo } from '@/hooks/use-auth';
 import { Note } from '@/types/domain';
+import { broadcastTabSync } from '@/lib/dexie/tab-sync';
 
 export function useNotes(workspaceId: string) {
   return useQuery({
@@ -140,6 +141,7 @@ export function useCreateNote() {
     },
     onSuccess: (newNote) => {
       queryClient.invalidateQueries({ queryKey: ['notes', newNote.workspace_id] });
+      broadcastTabSync({ type: 'NOTES_CHANGED', workspaceId: newNote.workspace_id });
     },
   });
 }
@@ -198,6 +200,7 @@ export function useUpdateNote() {
     onSuccess: (updated) => {
       queryClient.setQueryData(['note', updated.id], updated);
       queryClient.invalidateQueries({ queryKey: ['notes', updated.workspace_id] });
+      broadcastTabSync({ type: 'NOTE_MUTATED', noteId: updated.id, workspaceId: updated.workspace_id });
     },
     onError: (_err, { id }, context) => {
       if (context?.previousNote) {
@@ -227,8 +230,9 @@ export function useDeleteNote() {
       });
       return { noteId, workspaceId };
     },
-    onSuccess: ({ workspaceId }) => {
+    onSuccess: ({ workspaceId, noteId }) => {
       queryClient.invalidateQueries({ queryKey: ['notes', workspaceId] });
+      broadcastTabSync({ type: 'NOTE_MUTATED', noteId, workspaceId });
     },
   });
 }

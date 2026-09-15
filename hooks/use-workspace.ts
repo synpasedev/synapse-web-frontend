@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { localDb } from '@/lib/dexie/db';
 import { ensureSeedData } from '@/lib/dexie/seed';
 import { Workspace, WorkspaceMember, WorkspaceInvite, WorkspaceRole, WorkspaceType, Note } from '@/types/domain';
+import { broadcastTabSync } from '@/lib/dexie/tab-sync';
 
 export function useWorkspace(workspaceId: string) {
   return useQuery({
@@ -338,6 +339,7 @@ export function useCreateWorkspace() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+      broadcastTabSync({ type: 'WORKSPACE_MUTATED' });
     },
   });
 }
@@ -842,6 +844,7 @@ export function useUpdateWorkspace() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['workspace', variables.workspaceId] });
       queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+      broadcastTabSync({ type: 'WORKSPACE_MUTATED', workspaceId: variables.workspaceId });
     },
   });
 }
@@ -882,8 +885,9 @@ export function useDeleteWorkspace() {
 
       return { workspaceId };
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+      broadcastTabSync({ type: 'WORKSPACE_MUTATED', workspaceId: variables.workspaceId });
     },
   });
 }
