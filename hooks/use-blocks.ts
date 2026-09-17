@@ -137,6 +137,7 @@ export function useMutateBlocks(noteId: string) {
       if (newBlocks) {
         queryClient.setQueryData(['blocks', noteId], newBlocks);
       }
+      queryClient.invalidateQueries({ queryKey: ['notes'] });
       broadcastTabSync({ type: 'BLOCKS_MUTATED', noteId });
     },
     onError: (_err, _newBlocks, context) => {

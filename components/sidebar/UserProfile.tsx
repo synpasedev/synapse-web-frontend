@@ -14,15 +14,15 @@ export const UserProfile: React.FC = () => {
     return (
       <Link
         href="/login"
-        className="flex items-center justify-between p-2 rounded-xl bg-secondary/40 hover:bg-secondary border border-border/50 text-xs text-muted-foreground hover:text-foreground transition-all"
+        className="flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-neutral-200/60 dark:hover:bg-white/[0.06] text-xs text-muted-foreground hover:text-foreground transition-colors group"
       >
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400">
-            <User className="w-3.5 h-3.5" />
+          <div className="w-5 h-5 rounded-md bg-secondary flex items-center justify-center text-muted-foreground group-hover:text-foreground">
+            <User className="w-3 h-3" />
           </div>
-          <span className="font-medium text-[11px]">Guest (Local Mode)</span>
+          <span className="font-medium text-xs">Guest (Local Mode)</span>
         </div>
-        <span className="text-[10px] text-primary font-semibold flex items-center gap-1">
+        <span className="text-[11px] text-muted-foreground/70 group-hover:text-foreground font-medium flex items-center gap-1">
           Sign In <LogIn className="w-3 h-3" />
         </span>
       </Link>
@@ -33,13 +33,13 @@ export const UserProfile: React.FC = () => {
   const name = user.name || email.split('@')[0] || 'User';
 
   return (
-    <div className="flex items-center justify-between p-2 rounded-xl bg-secondary/40 border border-border/50 text-xs">
+    <div className="flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-neutral-200/60 dark:hover:bg-white/[0.06] text-xs transition-colors group">
       <div className="flex items-center gap-2 min-w-0">
-        <div className="w-6 h-6 rounded-lg bg-primary/20 flex items-center justify-center text-primary font-bold text-xs shrink-0">
+        <div className="w-5 h-5 rounded-md bg-primary/20 flex items-center justify-center text-primary font-bold text-xs shrink-0">
           {name.charAt(0).toUpperCase()}
         </div>
         <div className="min-w-0">
-          <div className="font-semibold text-foreground truncate text-[11px]">{name}</div>
+          <div className="font-medium text-foreground truncate text-xs">{name}</div>
           <div className="text-[10px] text-muted-foreground truncate">{email}</div>
         </div>
       </div>
@@ -47,10 +47,10 @@ export const UserProfile: React.FC = () => {
       <button
         type="button"
         onClick={signOut}
-        className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
+        className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-secondary text-muted-foreground hover:text-destructive transition-all cursor-pointer"
         title="Sign Out"
       >
-        <LogOut className="w-3.5 h-3.5" />
+        <LogOut className="w-3 h-3" />
       </button>
     </div>
   );

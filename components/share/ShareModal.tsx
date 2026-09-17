@@ -177,90 +177,88 @@ export const ShareModal: React.FC<ShareModalProps> = ({
         </div>
 
         {/* Content */}
-        <div className="p-5 space-y-5">
-          {/* Publish Status */}
-          {publishState === 'publishing' && (
-            <div className="flex items-center gap-2.5 p-3 rounded-xl bg-secondary/50 border border-border/50">
-              <Loader2 className="w-4 h-4 text-indigo-400 animate-spin shrink-0" />
-              <span className="text-xs text-muted-foreground">
-                Publishing current content to share server…
-              </span>
-            </div>
-          )}
-
-          {publishState === 'error' && (
-            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 space-y-2">
-              <p className="text-xs text-rose-400 font-medium">Failed to publish share</p>
-              <p className="text-[11px] text-muted-foreground">{publishError}</p>
-              <button
-                type="button"
-                onClick={publishToServer}
-                className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 text-xs font-medium transition-colors cursor-pointer"
-              >
-                <RefreshCw className="w-3 h-3" />
-                <span>Retry</span>
-              </button>
-            </div>
-          )}
-
-          {/* Share Link Box */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-semibold text-foreground uppercase tracking-wider">
-                Shareable Link
-              </label>
-              {publishState === 'published' && (
-                <span className="flex items-center gap-1 text-[11px] text-emerald-400 font-medium">
-                  <Globe className="w-3 h-3" />
-                  Published & ready to share
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          <div className="p-5 space-y-5 overflow-y-auto flex-1 min-h-0">
+            {/* Publish Status */}
+            {publishState === 'publishing' && (
+              <div className="flex items-center gap-2.5 p-3 rounded-xl bg-secondary/50 border border-border/50">
+                <Loader2 className="w-4 h-4 text-indigo-400 animate-spin shrink-0" />
+                <span className="text-xs text-muted-foreground">
+                  Publishing current content to share server…
                 </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2 p-2 bg-secondary/50 border border-border/60 rounded-xl">
-              <div className="flex-1 font-mono text-xs text-muted-foreground truncate px-2 select-all">
-                {shareUrl}
               </div>
+            )}
 
-              <button
-                type="button"
-                onClick={handleCopy}
-                disabled={publishState === 'publishing'}
-                className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-all cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-wait ${
-                  copied
-                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                    : 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-xs'
-                }`}
-              >
-                {copied ? (
-                  <>
-                    <Check className="w-3.5 h-3.5" />
-                    <span>Copied!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-3.5 h-3.5" />
-                    <span>Copy Link</span>
-                  </>
+            {publishState === 'error' && (
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 space-y-2">
+                <p className="text-xs text-rose-400 font-medium">Failed to publish share</p>
+                <p className="text-[11px] text-muted-foreground">{publishError}</p>
+                <button
+                  type="button"
+                  onClick={publishToServer}
+                  className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 text-xs font-medium transition-colors cursor-pointer"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Retry</span>
+                </button>
+              </div>
+            )}
+
+            {/* Share Link Box */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-semibold text-foreground uppercase tracking-wider">
+                  Shareable Link
+                </label>
+                {publishState === 'published' && (
+                  <span className="flex items-center gap-1 text-[11px] text-emerald-400 font-medium">
+                    <Globe className="w-3 h-3" />
+                    Published & ready to share
+                  </span>
                 )}
-              </button>
+              </div>
+              <div className="flex items-center gap-2 p-2 bg-secondary/50 border border-border/60 rounded-xl">
+                <div className="flex-1 font-mono text-xs text-muted-foreground truncate px-2 select-all">
+                  {shareUrl}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleCopy}
+                  disabled={publishState === 'publishing'}
+                  className="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 shrink-0"
+                >
+                  {copied ? (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Copy Link</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Permissions / Security Note */}
+            <div className="p-3.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 space-y-2">
+              <div className="flex items-center gap-2 text-indigo-400 text-xs font-bold">
+                <ShieldCheck className="w-4 h-4 shrink-0" />
+                <span>Sign-in Protected — Your Content, Your Control</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                The <strong>current state</strong> of this {resourceType} is published to our secure share server.
+                Anyone with this link can view it — but they <strong>must sign in or sign up</strong> first.
+                To update what collaborators see, click <strong>Re-share</strong> after making changes.
+              </p>
             </div>
           </div>
 
-          {/* Auth & Access Info */}
-          <div className="p-3.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 space-y-2">
-            <div className="flex items-center gap-2 text-indigo-400 text-xs font-bold">
-              <ShieldCheck className="w-4 h-4 shrink-0" />
-              <span>Sign-in Protected — Your Content, Your Control</span>
-            </div>
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
-              The <strong>current state</strong> of this {resourceType} is published to our secure share server.
-              Anyone with this link can view it — but they <strong>must sign in or sign up</strong> first.
-              To update what collaborators see, click <strong>Re-share</strong> after making changes.
-            </p>
-          </div>
-
-          {/* Action Row */}
-          <div className="flex items-center justify-between pt-1">
+          {/* Fixed Action Row Footer */}
+          <div className="flex items-center justify-between p-4 border-t border-border/40 bg-secondary/15 shrink-0">
             <div className="flex items-center gap-2">
               <button
                 type="button"

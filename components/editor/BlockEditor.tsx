@@ -13,6 +13,10 @@ import { common, createLowlight } from 'lowlight';
 import { WikiLinkExtension } from './extensions/wiki-link';
 import { WikiLinkSuggestionExtension } from './extensions/wiki-link-suggestion';
 import { SlashCommandExtension } from './extensions/slash-command';
+import { CalloutExtension } from './extensions/callout';
+import { MathExtension } from './extensions/math';
+import { MermaidExtension } from './extensions/mermaid';
+import { TableOfContents } from './TableOfContents';
 import { BacklinksPanel } from './BacklinksPanel';
 import { AIAssistantBar } from './AIAssistantBar';
 import { useMutateBlocks } from '@/hooks/use-blocks';
@@ -56,9 +60,16 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
 
   const [title, setTitle] = useState(note.title || '');
   const titleDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  const titleRef = useRef(note.title || '');
+  const noteRef = useRef(note);
+
+  useEffect(() => {
+    noteRef.current = note;
+  }, [note]);
 
   useEffect(() => {
     setTitle(note.title || '');
+    titleRef.current = note.title || '';
   }, [note.id, note.title]);
 
   const blocksRef = useRef<Block[]>(initialBlocks);
@@ -98,12 +109,13 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
 
   // Immediate synchronous flush for unmount / tab close
   const flushPendingSave = useCallback(() => {
+    const currentNote = noteRef.current;
     if (titleDebounceRef.current) {
       clearTimeout(titleDebounceRef.current);
       titleDebounceRef.current = null;
       updateNote({
-        id: note.id,
-        updates: { title },
+        id: currentNote.id,
+        updates: { title: titleRef.current },
       });
     }
     if (debounceTimerRef.current) {
@@ -118,15 +130,15 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
       } catch (e) {}
 
       // 2. Persist to IndexedDB
-      const blocks = tipTapDocToBlocks(json, note, blocksRef.current);
+      const blocks = tipTapDocToBlocks(json, currentNote, blocksRef.current);
       blocksRef.current = blocks;
       saveBlocks(blocks);
-      extractLinksFromEditor(note.workspace_id, note.id, json);
+      extractLinksFromEditor(currentNote.workspace_id, currentNote.id, json);
       try {
         localStorage.removeItem(draftKey);
       } catch (e) {}
     }
-  }, [note, saveBlocks, updateNote, title, draftKey]);
+  }, [saveBlocks, updateNote, draftKey]);
 
   const handleUpdate = useCallback(
     ({ editor }: { editor: any }) => {
@@ -183,6 +195,9 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
         workspaceId: note.workspace_id,
       }),
       SlashCommandExtension,
+      CalloutExtension,
+      MathExtension,
+      MermaidExtension,
     ],
     content: initialContent,
     onUpdate: handleUpdate,
@@ -236,6 +251,7 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newTitle = e.target.value;
     setTitle(newTitle);
+    titleRef.current = newTitle;
 
     if (titleDebounceRef.current) {
       clearTimeout(titleDebounceRef.current);
@@ -251,15 +267,32 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
     }, 250);
   };
 
-  const handleTitleBlur = () => {
+  const handleTitleBlur = (e?: React.FocusEvent<HTMLInputElement>) => {
+    const finalTitle = e?.target ? e.target.value : titleRef.current;
     if (titleDebounceRef.current) {
       clearTimeout(titleDebounceRef.current);
       titleDebounceRef.current = null;
-      updateNote({
-        id: note.id,
-        updates: { title },
-      });
-      onUserEditRef.current();
+    }
+    updateNote({
+      id: note.id,
+      updates: { title: finalTitle },
+    });
+    onUserEditRef.current();
+  };
+
+  const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (titleDebounceRef.current) {
+        clearTimeout(titleDebounceRef.current);
+        titleDebounceRef.current = null;
+        updateNote({
+          id: note.id,
+          updates: { title: titleRef.current },
+        });
+        onUserEditRef.current();
+      }
+      editor?.commands.focus('start');
     }
   };
 
@@ -377,6 +410,7 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
           value={title}
           onChange={handleTitleChange}
           onBlur={handleTitleBlur}
+          onKeyDown={handleTitleKeyDown}
           placeholder="Untitled Note"
           className="w-full text-2xl sm:text-3xl font-bold bg-transparent border-none outline-none text-foreground placeholder:text-muted-foreground/30 tracking-tight cursor-text focus:ring-0"
         />
@@ -395,6 +429,9 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
 
       {/* Incoming Backlinks Inspector */}
       <BacklinksPanel noteId={note.id} />
+
+      {/* Floating Table of Contents Outline */}
+      <TableOfContents editor={editor} />
     </div>
   );
 };

@@ -49,7 +49,7 @@ export const CanvasList: React.FC<CanvasListProps> = ({
   const isWhiteboardMode = baseRoute === 'whiteboards';
 
   return (
-    <div className="space-y-0.5 px-2">
+    <div className="space-y-0.5 px-1.5">
       {whiteboards.map((wb) => {
         const isActive = pathname === `/${workspaceId}/${baseRoute}/${wb.id}`;
 
@@ -57,16 +57,14 @@ export const CanvasList: React.FC<CanvasListProps> = ({
           <Link
             key={wb.id}
             href={`/${workspaceId}/${baseRoute}/${wb.id}`}
-            className={`group flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            className={`group flex items-center justify-between px-2 py-1 rounded-md text-[13px] transition-colors ${
               isActive
-                ? isWhiteboardMode
-                  ? 'bg-indigo-500/15 text-indigo-300 font-semibold border border-indigo-500/20'
-                  : 'bg-pink-500/15 text-pink-300 font-semibold border border-pink-500/20'
-                : 'text-foreground/80 hover:bg-secondary/60 hover:text-foreground border border-transparent'
+                ? 'bg-neutral-200/80 dark:bg-white/[0.08] text-foreground font-medium'
+                : 'text-muted-foreground hover:text-foreground hover:bg-neutral-200/50 dark:hover:bg-white/[0.05] font-normal'
             }`}
           >
             <div className="flex items-center gap-2 min-w-0">
-              <span className="text-sm shrink-0">{wb.icon || (isWhiteboardMode ? '📋' : '🎨')}</span>
+              <span className="text-sm shrink-0 leading-none">{wb.icon || (isWhiteboardMode ? '📋' : '🎨')}</span>
               <span className="truncate">{wb.title || 'Untitled Board'}</span>
             </div>
 
@@ -75,7 +73,7 @@ export const CanvasList: React.FC<CanvasListProps> = ({
               <button
                 type="button"
                 onClick={(e) => handleDelete(wb.id, wb.title, e)}
-                className="p-1 rounded hover:bg-card text-muted-foreground hover:text-rose-400 cursor-pointer"
+                className="p-0.5 rounded hover:bg-secondary/80 text-muted-foreground/70 hover:text-rose-400 cursor-pointer transition-colors"
                 title={`Delete ${isWhiteboardMode ? 'whiteboard' : 'canvas'}`}
               >
                 <Trash2 className="w-3 h-3" />

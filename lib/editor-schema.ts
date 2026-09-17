@@ -137,8 +137,20 @@ export function blocksToTipTapDoc(blocks: Block[]): any {
       };
     }
 
-    // 5. Quotes / Callouts
-    if (b.type === 'quote' || b.type === 'callout' || (b.type as string) === 'blockquote') {
+    // 5. Callouts
+    if (b.type === 'callout') {
+      const calloutContent = b.content?.nodes && b.content.nodes.length
+        ? enrichNodesWithMarkdown(b.content.nodes)
+        : [{ type: 'paragraph', content: textNodes.length ? textNodes : [{ type: 'text', text: 'Callout content' }] }];
+      return {
+        type: 'callout',
+        attrs: { type: b.properties?.type || 'info', icon: b.properties?.icon || 'ℹ️', isCollapsed: Boolean(b.properties?.isCollapsed) },
+        content: calloutContent,
+      };
+    }
+
+    // 5b. Quotes
+    if (b.type === 'quote' || (b.type as string) === 'blockquote') {
       return {
         type: 'blockquote',
         attrs: blockAttrs,
@@ -148,6 +160,22 @@ export function blocksToTipTapDoc(blocks: Block[]): any {
             content: b.content?.nodes ? enrichNodesWithMarkdown(b.content.nodes) : textNodes,
           },
         ],
+      };
+    }
+
+    // 5c. Math Block
+    if (b.properties?.isMath || (b.type as string) === 'mathBlock') {
+      return {
+        type: 'mathBlock',
+        attrs: { formula: b.properties?.formula || textContent || 'E = mc^2' },
+      };
+    }
+
+    // 5d. Mermaid Diagram
+    if ((b.properties?.language === 'mermaid' || (b.type as string) === 'mermaidBlock') && !b.properties?.isStandardCode) {
+      return {
+        type: 'mermaidBlock',
+        attrs: { code: b.properties?.code || textContent || 'graph TD\n  A --> B' },
       };
     }
 
@@ -260,6 +288,12 @@ export function tipTapDocToBlocks(
       blockType = 'numbered_list';
     } else if (node.type === 'blockquote') {
       blockType = 'quote';
+    } else if (node.type === 'callout') {
+      blockType = 'callout';
+    } else if (node.type === 'mathBlock') {
+      blockType = 'code';
+    } else if (node.type === 'mermaidBlock') {
+      blockType = 'code';
     } else if (node.type === 'codeBlock') {
       blockType = 'code';
     } else if (node.type === 'horizontalRule') {
@@ -268,7 +302,11 @@ export function tipTapDocToBlocks(
 
     // Extract text representation
     let text = '';
-    if (node.content && node.content.length) {
+    if (node.type === 'mathBlock') {
+      text = node.attrs?.formula || '';
+    } else if (node.type === 'mermaidBlock') {
+      text = node.attrs?.code || '';
+    } else if (node.content && node.content.length) {
       text = extractTextFromNodes(node.content);
     }
 
@@ -304,6 +342,8 @@ export function tipTapDocToBlocks(
       },
       properties: {
         ...(node.attrs || {}),
+        ...(node.type === 'mathBlock' ? { isMath: true, formula: node.attrs?.formula } : {}),
+        ...(node.type === 'mermaidBlock' ? { language: 'mermaid', code: node.attrs?.code } : {}),
         ...(isTask ? { checked: isChecked } : {}),
       },
       sort_order: (index + 1) * 1000,

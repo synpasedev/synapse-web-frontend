@@ -58,37 +58,27 @@ export const WorkspaceSwitcher: React.FC<{ workspace: Workspace | null }> = ({ w
 
   return (
     <div className="relative w-full" ref={dropdownRef}>
-      {/* Current Workspace Button */}
+      {/* Current Workspace Button (Notion-Style) */}
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between p-2 rounded-xl hover:bg-secondary/70 transition-colors cursor-pointer border border-border/40 text-left group"
+        className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-neutral-200/60 dark:hover:bg-white/[0.06] transition-colors cursor-pointer text-left group"
       >
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-base font-bold shadow-md shadow-indigo-500/20 shrink-0 group-hover:scale-105 transition-transform">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-5 h-5 rounded-md bg-secondary/80 flex items-center justify-center text-foreground text-xs font-semibold shrink-0">
             {workspace?.icon || '🧠'}
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="text-xs font-bold text-foreground truncate flex items-center gap-1.5">
-              <span>{workspace?.name || 'Workspace'}</span>
-            </div>
-            <div className="text-[10px] text-muted-foreground font-medium flex items-center gap-1">
-              {isShared ? (
-                <>
-                  <Users className="w-2.5 h-2.5 text-indigo-400" />
-                  <span>Shared ({workspace?.members_count || 1})</span>
-                </>
-              ) : (
-                <>
-                  <Lock className="w-2.5 h-2.5 text-emerald-400" />
-                  <span>Private Brain</span>
-                </>
-              )}
-            </div>
+          <div className="min-w-0 flex-1 flex items-center gap-1.5">
+            <span className="text-[13px] font-medium text-foreground truncate">
+              {workspace?.name || 'Workspace'}
+            </span>
+            <span className="text-[10px] text-muted-foreground/70 font-normal shrink-0">
+              {isShared ? 'Shared' : 'Private'}
+            </span>
           </div>
         </div>
         <ChevronDown
-          className={`w-3.5 h-3.5 text-muted-foreground shrink-0 transition-transform duration-200 ${
+          className={`w-3 h-3 text-muted-foreground/60 shrink-0 transition-transform duration-200 ${
             isOpen ? 'rotate-180 text-foreground' : ''
           }`}
         />

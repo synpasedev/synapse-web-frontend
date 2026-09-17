@@ -17,6 +17,9 @@ import {
   ChevronRight,
   ArrowLeft,
   Search,
+  Info,
+  Sigma,
+  GitGraph,
 } from 'lucide-react';
 
 export interface SlashContext {
@@ -261,6 +264,70 @@ export const SLASH_ITEMS: SlashItem[] = [
         ctx.editor.chain().focus().deleteRange(ctx.range).insertContent(content).run();
       } else {
         ctx.editor.chain().focus().insertContent(content).run();
+      }
+    },
+  },
+  {
+    id: 'block-callout',
+    title: 'Callout / Admonition',
+    description: 'Highlight important tips, warnings, or info notes',
+    keywords: ['callout', 'admonition', 'info', 'tip', 'warning', 'note', 'box', 'alert'],
+    category: 'advanced',
+    icon: <Info className="w-4 h-4 text-sky-400" />,
+    command: (ctx) => {
+      const calloutContent = {
+        type: 'callout',
+        attrs: { type: 'info', icon: 'ℹ️' },
+        content: [
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: 'Important highlight or note...' }],
+          },
+        ],
+      };
+      if (ctx.range) {
+        ctx.editor.chain().focus().deleteRange(ctx.range).insertContent(calloutContent).run();
+      } else {
+        ctx.editor.chain().focus().insertContent(calloutContent).run();
+      }
+    },
+  },
+  {
+    id: 'block-math',
+    title: 'LaTeX Math Equation',
+    description: 'Write formulas and math with KaTeX',
+    keywords: ['math', 'latex', 'katex', 'equation', 'formula', 'algebra', 'calculus'],
+    category: 'advanced',
+    icon: <Sigma className="w-4 h-4 text-indigo-400" />,
+    command: (ctx) => {
+      const mathNode = {
+        type: 'mathBlock',
+        attrs: { formula: 'E = mc^2' },
+      };
+      if (ctx.range) {
+        ctx.editor.chain().focus().deleteRange(ctx.range).insertContent(mathNode).run();
+      } else {
+        ctx.editor.chain().focus().insertContent(mathNode).run();
+      }
+    },
+  },
+  {
+    id: 'block-mermaid',
+    title: 'Mermaid Diagram',
+    description: 'Create flowcharts, sequence diagrams, and mindmaps',
+    keywords: ['mermaid', 'diagram', 'flowchart', 'graph', 'chart', 'sequence', 'mindmap'],
+    category: 'advanced',
+    icon: <GitGraph className="w-4 h-4 text-emerald-400" />,
+    command: (ctx) => {
+      const defaultDiagram = `graph TD\n  A[Idea] --> B(Concept)\n  B --> C{Feasible?}\n  C -->|Yes| D[Execution]\n  C -->|No| A`;
+      const mermaidNode = {
+        type: 'mermaidBlock',
+        attrs: { code: defaultDiagram },
+      };
+      if (ctx.range) {
+        ctx.editor.chain().focus().deleteRange(ctx.range).insertContent(mermaidNode).run();
+      } else {
+        ctx.editor.chain().focus().insertContent(mermaidNode).run();
       }
     },
   },

@@ -25,10 +25,11 @@ export default function NotesPage({
   const { workspaceId } = use(params);
   const router = useRouter();
   const { data: notes, isLoading } = useNotes(workspaceId);
-  const { mutateAsync: createNote } = useCreateNote();
+  const { mutateAsync: createNote, isPending: isCreatingNote } = useCreateNote();
   const { setTemplateModalOpen } = useUIStore();
 
-    const handleCreateNew = async () => {
+  const handleCreateNew = async () => {
+    if (isCreatingNote) return;
     const existingUntitled = (notes || []).filter(
       (n) => n.title && (n.title === 'Untitled Note' || /^Untitled Note \d+$/.test(n.title))
     );
@@ -65,10 +66,11 @@ export default function NotesPage({
             <button
               type="button"
               onClick={handleCreateNew}
-              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs sm:text-sm font-medium shadow-sm transition-all cursor-pointer"
+              disabled={isCreatingNote}
+              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-primary hover:bg-primary/90 disabled:opacity-50 text-primary-foreground text-xs sm:text-sm font-medium shadow-sm transition-all cursor-pointer"
             >
               <Plus className="w-4 h-4" />
-              <span>Create Note</span>
+              <span>{isCreatingNote ? 'Creating...' : 'Create Note'}</span>
             </button>
 
             <button
