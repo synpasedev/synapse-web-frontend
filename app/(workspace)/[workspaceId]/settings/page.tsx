@@ -268,7 +268,7 @@ export default function SettingsPage({
           </p>
 
           <div className="p-3.5 rounded-xl bg-secondary/40 border border-border/40 text-xs text-muted-foreground font-mono space-y-1">
-            <div>NEXT_PUBLIC_SUPABASE_URL = {process.env.NEXT_PUBLIC_SUPABASE_URL || 'Not connected (Local Mode)'}</div>
+            <div>BACKEND = Supabase PostgreSQL (Cloud Sync) + Dexie.js (Local IndexedDB)</div>
             <div>STATUS = Monotonic Queue Ready (Last-Write-Wins LWW)</div>
           </div>
         </div>
@@ -285,7 +285,7 @@ export default function SettingsPage({
           </p>
 
           <div className="p-3.5 rounded-xl bg-secondary/40 border border-border/40 text-xs text-muted-foreground space-y-1 font-mono">
-            <div>PROVIDER = {process.env.GEMINI_API_KEY ? 'Google Gemini (Active)' : (process.env.AI_PROVIDER || 'Google Gemini / Local Built-in Fallback')}</div>
+            <div>PROVIDER = Google Gemini (1.5 Flash / 2.0 Flash)</div>
             <div>ENV_VAR = GEMINI_API_KEY (or GOOGLE_API_KEY)</div>
             <div>ENDPOINTS = /api/ai/summarize, /api/ai/improve, /api/ai/action-items, /api/ai/expand, /api/ai/chat</div>
           </div>
