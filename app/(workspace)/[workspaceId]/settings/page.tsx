@@ -1,10 +1,28 @@
 'use client';
 
 import React, { useState, useEffect, use } from 'react';
-import { Settings, Database, Cloud, Sparkles, RefreshCw, CheckCircle2, ShieldCheck, HardDrive } from 'lucide-react';
+import {
+  Settings,
+  Database,
+  Cloud,
+  Sparkles,
+  RefreshCw,
+  CheckCircle2,
+  ShieldCheck,
+  HardDrive,
+  Users,
+  UserPlus,
+  Mail,
+  Clock,
+  XCircle,
+  Shield,
+  Crown,
+} from 'lucide-react';
 import { localDb } from '@/lib/dexie/db';
 import { syncEngine } from '@/lib/dexie/sync-engine';
 import { ThemeSettingsSection } from '@/components/theme/ThemeSettingsSection';
+import { useWorkspace, useWorkspaceMembers, useWorkspaceInvites } from '@/hooks/use-workspace';
+import { useUIStore } from '@/stores/use-ui-store';
 
 export default function SettingsPage({
   params,
@@ -12,10 +30,21 @@ export default function SettingsPage({
   params: Promise<{ workspaceId: string }>;
 }) {
   const { workspaceId } = use(params);
+  const { data: workspace } = useWorkspace(workspaceId);
+  const { data: members = [] } = useWorkspaceMembers(workspaceId);
+  const { data: invites = [] } = useWorkspaceInvites(workspaceId);
+  const { setInviteModalOpen } = useUIStore();
+
   const [noteCount, setNoteCount] = useState(0);
   const [blockCount, setBlockCount] = useState(0);
   const [linkCount, setLinkCount] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
+
+  const pendingInvites = invites.filter(
+    (i) => i.status === 'pending' && (!i.expires_at || new Date(i.expires_at) > new Date())
+  );
+  const acceptedInvites = invites.filter((i) => i.status === 'accepted' || i.status === 'consumed');
+  const rejectedInvites = invites.filter((i) => i.status === 'rejected');
 
   useEffect(() => {
     async function loadStats() {
@@ -46,12 +75,140 @@ export default function SettingsPage({
             Workspace Settings & Engine
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Manage appearance themes, local-first IndexedDB storage, and sync
+            Manage team collaboration, appearance themes, local-first storage, and cloud sync
           </p>
         </div>
       </div>
 
       <div className="space-y-6">
+        {/* Team & Collaboration Section */}
+        <div className="p-6 rounded-2xl border border-border/80 bg-card/40 backdrop-blur-md shadow-xl">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+                <Users className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base font-bold text-foreground">Team Collaboration & Members</h2>
+                  {workspace?.type === 'shared' ? (
+                    <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
+                      Shared Workspace
+                    </span>
+                  ) : (
+                    <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-secondary text-muted-foreground border border-border/50">
+                      Private
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Real-time notes collaboration, role permissions, and member invite tracking
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setInviteModalOpen(true)}
+              className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md shadow-indigo-600/20 transition-all cursor-pointer self-start sm:self-auto"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              <span>Manage & Invite</span>
+            </button>
+          </div>
+
+          {/* Key Metrics */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+            <div className="p-3 rounded-xl bg-secondary/40 border border-border/40">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-muted-foreground">Collaborators</span>
+                <Users className="w-3.5 h-3.5 text-indigo-400" />
+              </div>
+              <div className="text-xl font-bold text-foreground mt-1">{members.length}</div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">Active in workspace</div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-secondary/40 border border-border/40">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-amber-400">Pending</span>
+                <Clock className="w-3.5 h-3.5 text-amber-400" />
+              </div>
+              <div className="text-xl font-bold text-foreground mt-1">{pendingInvites.length}</div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">Awaiting response</div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-secondary/40 border border-border/40">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-emerald-400">Accepted</span>
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+              </div>
+              <div className="text-xl font-bold text-foreground mt-1">{acceptedInvites.length}</div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">Joined via invite</div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-secondary/40 border border-border/40">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-rose-400">Declined</span>
+                <XCircle className="w-3.5 h-3.5 text-rose-400" />
+              </div>
+              <div className="text-xl font-bold text-foreground mt-1">{rejectedInvites.length}</div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">Declined invitations</div>
+            </div>
+          </div>
+
+          {/* Members List Preview */}
+          <div className="space-y-2">
+            <span className="text-xs font-semibold text-foreground/80 uppercase tracking-wider block">
+              Active Workspace Collaborators
+            </span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {members.map((member) => {
+                const isOwner = member.role === 'owner';
+                const name = member.name || member.email?.split('@')[0] || 'Member';
+                return (
+                  <div
+                    key={member.id}
+                    className="flex items-center justify-between p-2.5 rounded-xl bg-secondary/30 border border-border/40"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div
+                        className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 ${
+                          isOwner
+                            ? 'bg-amber-500'
+                            : member.role === 'admin'
+                            ? 'bg-purple-500'
+                            : 'bg-blue-500'
+                        }`}
+                      >
+                        {name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold text-foreground truncate flex items-center gap-1.5">
+                          <span>{name}</span>
+                          {isOwner && <Crown className="w-3 h-3 text-amber-400 shrink-0" />}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground truncate">{member.email}</div>
+                      </div>
+                    </div>
+
+                    <span
+                      className={`text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-md border shrink-0 ${
+                        isOwner
+                          ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                          : member.role === 'admin'
+                          ? 'bg-purple-500/10 text-purple-400 border-purple-500/20'
+                          : 'bg-secondary text-muted-foreground border-border/50'
+                      }`}
+                    >
+                      {member.role}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
         {/* Appearance & Themes Section */}
         <ThemeSettingsSection />
 

@@ -42,17 +42,27 @@ export async function POST(req: NextRequest) {
 }
 
 /**
- * GET /api/invite?code=syn-xxx
- * Retrieve an invite by code
+ * GET /api/invite?code=syn-xxx OR /api/invite?workspaceId=ws-xxx
+ * Retrieve an invite by code, or list all invites for a workspace
  */
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const code = searchParams.get('code');
+    const workspaceId = searchParams.get('workspaceId') || searchParams.get('workspace_id');
+
+    if (workspaceId) {
+      const invites = await serverInvites.getInvitesByWorkspace(workspaceId);
+      return NextResponse.json({
+        success: true,
+        invites,
+        count: invites.length,
+      });
+    }
 
     if (!code) {
       return NextResponse.json(
-        { error: 'Missing required query parameter "code"' },
+        { error: 'Missing required query parameter "code" or "workspaceId"' },
         { status: 400 }
       );
     }

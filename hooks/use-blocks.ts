@@ -91,12 +91,17 @@ export function useMutateBlocks(noteId: string) {
         await localDb.notes.update(noteId, { updated_at: now });
       });
 
-      // 2. Dispatch to shared server store
+      // 2. Dispatch to shared server store with workspaceId
+      const parentNote = await localDb.notes.get(noteId);
+      const wsId = parentNote?.workspace_id || enrichedBlocks[0]?.workspace_id || 'ws-default-synapse';
+
       fetch('/api/blocks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           noteId,
+          workspaceId: wsId,
+          workspace_id: wsId,
           blocks: enrichedBlocks,
         }),
       }).catch((err) => console.warn('Failed to broadcast blocks:', err));

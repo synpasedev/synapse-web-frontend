@@ -5,7 +5,7 @@ import { serverStore, StoredNote } from '@/lib/server-store';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const workspaceId = searchParams.get('workspaceId') || 'ws-default-synapse';
+  const workspaceId = searchParams.get('workspaceId') || searchParams.get('workspace_id') || 'ws-default-synapse';
   const userEmail = searchParams.get('email');
 
   if (serverStore.isWorkspaceDeleted(workspaceId)) {
@@ -72,9 +72,9 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+    const workspaceId = body.workspace_id || body.workspaceId || 'ws-default-synapse';
     const {
       id,
-      workspaceId = 'ws-default-synapse',
       title = 'Untitled Note',
       icon = '📄',
       parentId = null,

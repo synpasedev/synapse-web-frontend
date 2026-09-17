@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, Suspense } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { useAcceptInvite } from '@/hooks/use-workspace';
+import { useAcceptInvite, useRejectInvite } from '@/hooks/use-workspace';
 import { localDb } from '@/lib/dexie/db';
 import { Workspace, WorkspaceInvite, WorkspaceRole } from '@/types/domain';
 import { ArrowRight, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
@@ -26,7 +26,11 @@ function InviteContent() {
   const [error, setError] = useState<string | null>(null);
   const [joined, setJoined] = useState(false);
 
+  const [declined, setDeclined] = useState(false);
+  const [isDeclining, setIsDeclining] = useState(false);
+
   const { mutateAsync: acceptInvite, isPending: isJoining } = useAcceptInvite();
+  const { mutateAsync: rejectInvite } = useRejectInvite();
 
   useEffect(() => {
     async function loadInvite() {
@@ -36,7 +40,7 @@ function InviteContent() {
         setError(null);
         const cleanCode = code.trim().toLowerCase();
 
-        // 1. Authoritative Server Verification (Eliminates privilege escalation and revocation bypass)
+        // 1. Authoritative Server Verification
         const res = await fetch(`/api/invite/${encodeURIComponent(cleanCode)}`);
         
         if (!res.ok) {
@@ -45,6 +49,8 @@ function InviteContent() {
             errJson.error ||
             (errJson.consumed
               ? 'This invitation has already been accepted and cannot be reused.'
+              : errJson.rejected
+              ? 'This invitation was declined.'
               : errJson.revoked
               ? 'This invitation has been revoked by the workspace owner.'
               : errJson.expired
@@ -53,6 +59,9 @@ function InviteContent() {
               ? 'This workspace has been deleted by its owner.'
               : 'Invitation link is invalid or has expired.');
           setError(errorMsg);
+          if (errJson.rejected) {
+            setDeclined(true);
+          }
           return;
         }
 
@@ -68,6 +77,11 @@ function InviteContent() {
         // 2. Enforce status verification
         if (serverInvite.status === 'consumed') {
           setError('This invitation has already been accepted and cannot be reused.');
+          return;
+        }
+        if (serverInvite.status === 'rejected') {
+          setDeclined(true);
+          setError('This invitation was previously declined.');
           return;
         }
         if (serverInvite.status === 'revoked') {
@@ -123,6 +137,19 @@ function InviteContent() {
     loadInvite();
   }, [code, paramEmail]);
 
+  const handleDecline = async () => {
+    if (!confirm('Are you sure you want to decline this invitation?')) return;
+    setIsDeclining(true);
+    try {
+      await rejectInvite({ code, userEmail: email.trim() || undefined });
+      setDeclined(true);
+    } catch (err: any) {
+      setError(err.message || 'Failed to decline invitation.');
+    } finally {
+      setIsDeclining(false);
+    }
+  };
+
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -170,6 +197,29 @@ function InviteContent() {
       <div className="bg-card border border-border/80 rounded-2xl p-8 shadow-xl text-center space-y-4">
         <div className="w-12 h-12 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto" />
         <p className="text-sm text-muted-foreground">Checking invitation link...</p>
+      </div>
+    );
+  }
+
+  if (declined) {
+    return (
+      <div className="bg-card border border-border/80 rounded-2xl p-8 shadow-xl text-center space-y-4 animate-in zoom-in-95 duration-200">
+        <div className="w-14 h-14 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center mx-auto">
+          <AlertCircle className="w-7 h-7" />
+        </div>
+        <h1 className="text-lg font-bold text-foreground">Invitation Declined</h1>
+        <p className="text-xs text-muted-foreground">
+          You have declined the invitation to join <strong>{workspace?.name || 'the workspace'}</strong>.
+        </p>
+        <div className="pt-3">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold bg-secondary hover:bg-secondary/80 text-foreground rounded-xl transition-colors"
+          >
+            <span>Return to Synapse</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+        </div>
       </div>
     );
   }
@@ -278,23 +328,34 @@ function InviteContent() {
           </div>
         )}
 
-        <button
-          type="submit"
-          disabled={isJoining}
-          className="w-full py-2.5 text-xs font-bold text-primary-foreground bg-primary hover:bg-primary/90 disabled:opacity-50 rounded-xl shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
-        >
-          {isJoining ? (
-            <>
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              <span>Joining Workspace...</span>
-            </>
-          ) : (
-            <>
-              <span>Accept Invite & Join Workspace</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </>
-          )}
-        </button>
+        <div className="space-y-2 pt-2">
+          <button
+            type="submit"
+            disabled={isJoining || isDeclining}
+            className="w-full py-2.5 text-xs font-bold text-primary-foreground bg-primary hover:bg-primary/90 disabled:opacity-50 rounded-xl shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
+          >
+            {isJoining ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Joining Workspace...</span>
+              </>
+            ) : (
+              <>
+                <span>Accept Invite & Join Workspace</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </>
+            )}
+          </button>
+
+          <button
+            type="button"
+            disabled={isJoining || isDeclining}
+            onClick={handleDecline}
+            className="w-full py-2 text-xs font-medium text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 rounded-xl transition-all cursor-pointer disabled:opacity-50"
+          >
+            {isDeclining ? 'Declining...' : 'Decline Invitation'}
+          </button>
+        </div>
       </form>
 
       <div className="pt-2 border-t border-border/40 text-center">

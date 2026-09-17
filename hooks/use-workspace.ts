@@ -230,6 +230,27 @@ export function useWorkspaceInvites(workspaceId: string) {
     queryFn: async (): Promise<WorkspaceInvite[]> => {
       await ensureSeedData();
       if (!workspaceId) return [];
+
+      // 1. Sync remote invites from server to catch real-time status changes (pending, accepted, rejected)
+      try {
+        const res = await fetch(`/api/invite?workspaceId=${encodeURIComponent(workspaceId)}`);
+        if (res.ok) {
+          const json = await res.json();
+          const remoteInvites: WorkspaceInvite[] = json.invites || [];
+          if (remoteInvites.length > 0) {
+            for (const rInv of remoteInvites) {
+              const localInv = await localDb.workspace_invites.get(rInv.id);
+              if (!localInv || localInv.status !== rInv.status) {
+                await localDb.workspace_invites.put({
+                  ...localInv,
+                  ...rInv,
+                });
+              }
+            }
+          }
+        }
+      } catch {}
+
       const invites = await localDb.workspace_invites
         .where('workspace_id')
         .equals(workspaceId)
@@ -263,6 +284,8 @@ export function useWorkspaceInvites(workspaceId: string) {
       return uniqueInvites;
     },
     enabled: Boolean(workspaceId),
+    refetchInterval: 4000,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -335,6 +358,13 @@ export function useCreateWorkspace() {
         await localDb.notes.put(welcomeNote);
       });
 
+      // Synchronize workspace to shared server store
+      fetch('/api/workspaces', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newWorkspace),
+      }).catch((err) => console.warn('[useCreateWorkspace] Server sync notice:', err));
+
       return newWorkspace;
     },
     onSuccess: () => {
@@ -356,7 +386,7 @@ export function useInviteMember() {
       workspaceId: string;
       email?: string;
       role: WorkspaceRole;
-    }): Promise<{ invite: WorkspaceInvite; member?: WorkspaceMember }> => {
+    }): Promise<{ invite: WorkspaceInvite }> => {
       await ensureSeedData();
       const now = new Date().toISOString();
       const inviteCode = `syn-${crypto.randomUUID().replace(/-/g, '').substring(0, 16)}`;
@@ -364,16 +394,15 @@ export function useInviteMember() {
       const newInvite: WorkspaceInvite = {
         id: `inv-${crypto.randomUUID().slice(0, 8)}`,
         workspace_id: workspaceId,
-        email: email || undefined,
+        email: email ? email.trim().toLowerCase() : undefined,
         role,
         invite_code: inviteCode,
         created_by: 'local-user-1',
         created_at: now,
         expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        status: 'pending',
         is_public_link: !email,
       };
-
-      let newMember: WorkspaceMember | undefined;
 
       if (email && email.trim()) {
         const normalizedEmail = email.trim().toLowerCase();
@@ -394,17 +423,17 @@ export function useInviteMember() {
           throw new Error('You cannot invite yourself to your own workspace.');
         }
 
-        // 2. Check if user is already an existing member of this workspace
+        // 2. Check if user is already an accepted member of this workspace
         const alreadyMember = existingMembers.find(
           (m) => m.email && m.email.trim().toLowerCase() === normalizedEmail
         );
         if (alreadyMember) {
           throw new Error(
-            `"${email.trim()}" is already a member of this workspace (${alreadyMember.role}).`
+            `"${email.trim()}" is already an active member of this workspace (${alreadyMember.role}).`
           );
         }
 
-        // 3. Check if an active invite has already been sent to this user
+        // 3. Check if an active pending invite has already been sent to this user
         const existingInvites = await localDb.workspace_invites
           .where('workspace_id')
           .equals(workspaceId)
@@ -415,35 +444,19 @@ export function useInviteMember() {
             i.email &&
             i.email.trim().toLowerCase() === normalizedEmail &&
             (!i.expires_at || new Date(i.expires_at) > new Date()) &&
-            i.status !== 'revoked' &&
-            i.status !== 'consumed'
+            i.status === 'pending'
         );
         if (alreadyInvited) {
           throw new Error(
-            `An invite has already been sent to "${email.trim()}" (Code: ${alreadyInvited.invite_code}).`
+            `An invite is already pending for "${email.trim()}" (Code: ${alreadyInvited.invite_code}).`
           );
         }
-
-        const memberId = `mem-${crypto.randomUUID().slice(0, 8)}`;
-        newMember = {
-          id: memberId,
-          workspace_id: workspaceId,
-          user_id: `usr-${Math.random().toString(36).substring(2, 7)}`,
-          role,
-          email: email.trim(),
-          created_at: now,
-          updated_at: now,
-        };
       }
 
-      await localDb.transaction('rw', [localDb.workspace_invites, localDb.workspace_members], async () => {
-        await localDb.workspace_invites.put(newInvite);
-        if (newMember) {
-          await localDb.workspace_members.put(newMember);
-        }
-      });
+      // Save only the invite — member is only created when they accept!
+      await localDb.workspace_invites.put(newInvite);
 
-      // Also register invite and member with server store asynchronously
+      // Register invite with server store asynchronously
       try {
         const ws = await localDb.workspaces.get(workspaceId);
         fetch('/api/invite', {
@@ -458,17 +471,9 @@ export function useInviteMember() {
             },
           }),
         }).catch((e) => console.warn('[useInviteMember] Server sync notice:', e.message));
-
-        if (newMember) {
-          fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/members`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ member: newMember }),
-          }).catch(() => {});
-        }
       } catch {}
 
-      return { invite: newInvite, member: newMember };
+      return { invite: newInvite };
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['workspace_members', variables.workspaceId] });
@@ -637,7 +642,7 @@ export function useBatchInviteMembers() {
         .toArray();
       const existingInviteEmails = new Set(
         existingInvites
-          .filter((i) => (!i.expires_at || new Date(i.expires_at) > new Date()) && i.status !== 'revoked' && i.status !== 'consumed')
+          .filter((i) => (!i.expires_at || new Date(i.expires_at) > new Date()) && i.status === 'pending')
           .map((i) => i.email?.toLowerCase().trim())
           .filter(Boolean)
       );
@@ -647,7 +652,6 @@ export function useBatchInviteMembers() {
       const skippedAlreadyInvited: string[] = [];
 
       const newInvites: WorkspaceInvite[] = [];
-      const newMembers: WorkspaceMember[] = [];
 
       for (const rawEmail of emails) {
         const cleanEmail = rawEmail.trim().toLowerCase();
@@ -675,7 +679,6 @@ export function useBatchInviteMembers() {
         }
 
         const inviteCode = `syn-${crypto.randomUUID().replace(/-/g, '').substring(0, 16)}`;
-        const memberId = `mem-${crypto.randomUUID().slice(0, 8)}`;
         const inviteId = `inv-${crypto.randomUUID().slice(0, 8)}`;
 
         newInvites.push({
@@ -687,28 +690,17 @@ export function useBatchInviteMembers() {
           created_by: 'local-user-1',
           created_at: now,
           expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          status: 'pending',
           is_public_link: false,
         });
 
-        newMembers.push({
-          id: memberId,
-          workspace_id: workspaceId,
-          user_id: `usr-${Math.random().toString(36).substring(2, 7)}`,
-          role,
-          email: cleanEmail,
-          created_at: now,
-          updated_at: now,
-        });
-
-        added.push({ email: cleanEmail, inviteCode, memberId });
-        existingMemberEmails.add(cleanEmail);
+        added.push({ email: cleanEmail, inviteCode, memberId: inviteId });
         existingInviteEmails.add(cleanEmail);
       }
 
-      await localDb.transaction('rw', [localDb.workspace_invites, localDb.workspace_members], async () => {
-        if (newInvites.length > 0) await localDb.workspace_invites.bulkPut(newInvites);
-        if (newMembers.length > 0) await localDb.workspace_members.bulkPut(newMembers);
-      });
+      if (newInvites.length > 0) {
+        await localDb.workspace_invites.bulkPut(newInvites);
+      }
 
       // Also register batch invites with server store asynchronously
       if (newInvites.length > 0) {
@@ -725,14 +717,6 @@ export function useBatchInviteMembers() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ invites: enrichedBatch }),
           }).catch((e) => console.warn('[useBatchInviteMembers] Server sync notice:', e.message));
-
-          for (const nm of newMembers) {
-            fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/members`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ member: nm }),
-            }).catch(() => {});
-          }
         } catch {}
       }
 
@@ -743,6 +727,108 @@ export function useBatchInviteMembers() {
       queryClient.invalidateQueries({ queryKey: ['workspace_invites', variables.workspaceId] });
       queryClient.invalidateQueries({ queryKey: ['workspace', variables.workspaceId] });
       queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+    },
+  });
+}
+
+export function useRejectInvite() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      code,
+      userEmail,
+    }: {
+      code: string;
+      userEmail?: string;
+    }) => {
+      const cleanCode = code.trim().toLowerCase();
+      const res = await fetch(`/api/invite/${encodeURIComponent(cleanCode)}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userEmail }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to decline invitation');
+      }
+
+      const data = await res.json();
+      // Update localDb invite if present
+      const allInvites = await localDb.workspace_invites.toArray();
+      const match = allInvites.find((i) => i.invite_code.toLowerCase() === cleanCode);
+      if (match) {
+        await localDb.workspace_invites.update(match.id, { status: 'rejected' });
+      }
+
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workspace_invites'] });
+    },
+  });
+}
+
+export function useReinviteMember() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      workspaceId,
+      email,
+      role = 'editor',
+    }: {
+      workspaceId: string;
+      email: string;
+      role?: WorkspaceRole;
+    }) => {
+      await ensureSeedData();
+      const cleanEmail = email.trim().toLowerCase();
+      const now = new Date().toISOString();
+      const inviteCode = `syn-${crypto.randomUUID().replace(/-/g, '').substring(0, 16)}`;
+
+      // Remove any prior rejected/revoked invite for this email in localDb
+      const existing = await localDb.workspace_invites.where('workspace_id').equals(workspaceId).toArray();
+      const prior = existing.filter((i) => i.email?.toLowerCase().trim() === cleanEmail);
+      if (prior.length > 0) {
+        await localDb.workspace_invites.bulkDelete(prior.map((p) => p.id));
+      }
+
+      const newInvite: WorkspaceInvite = {
+        id: `inv-${crypto.randomUUID().slice(0, 8)}`,
+        workspace_id: workspaceId,
+        email: cleanEmail,
+        role,
+        invite_code: inviteCode,
+        created_by: 'local-user-1',
+        created_at: now,
+        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        status: 'pending',
+        is_public_link: false,
+      };
+
+      await localDb.workspace_invites.put(newInvite);
+
+      const ws = await localDb.workspaces.get(workspaceId);
+      await fetch('/api/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          invite: {
+            ...newInvite,
+            workspace_name: ws?.name || 'Workspace',
+            workspace_icon: ws?.icon || '👥',
+            workspace_slug: ws?.slug,
+          },
+        }),
+      });
+
+      return newInvite;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['workspace_invites', variables.workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ['workspace', variables.workspaceId] });
     },
   });
 }
@@ -991,12 +1077,19 @@ export function useAcceptInvite() {
             updated_at: now,
           };
           await localDb.workspace_members.put(newMember);
+          await localDb.workspace_invites.update(targetInvite.id, {
+            status: targetInvite.is_public_link ? 'accepted' : 'consumed',
+          });
 
           fetch(`/api/workspaces/${encodeURIComponent(targetInvite.workspace_id)}/members`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ member: newMember }),
           }).catch(() => {});
+        } else {
+          await localDb.workspace_invites.update(targetInvite.id, {
+            status: targetInvite.is_public_link ? 'accepted' : 'consumed',
+          });
         }
 
         let ws = await localDb.workspaces.get(targetInvite.workspace_id);
@@ -1019,6 +1112,17 @@ export function useAcceptInvite() {
           };
           await localDb.workspaces.put(ws);
         }
+
+        // Pull remote notes from server for this shared workspace
+        try {
+          const notesRes = await fetch(`/api/notes?workspaceId=${encodeURIComponent(targetInvite.workspace_id)}`);
+          if (notesRes.ok) {
+            const notesJson = await notesRes.json();
+            if (Array.isArray(notesJson.data) && notesJson.data.length > 0) {
+              await localDb.notes.bulkPut(notesJson.data);
+            }
+          }
+        } catch {}
 
         // Ensure at least one welcome note exists for this workspace
         const notesCount = await localDb.notes

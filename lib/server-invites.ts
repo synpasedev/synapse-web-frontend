@@ -397,4 +397,110 @@ export const serverInvites = {
 
     return count;
   },
+
+  /**
+   * Reject / decline an invite
+   */
+  async rejectInvite(code: string, userEmail?: string): Promise<StoredServerInvite | null> {
+    const invite = await this.getInvite(code);
+    if (!invite) return null;
+
+    if (invite.status === 'consumed' || invite.status === 'accepted') {
+      const err = new Error('This invitation has already been accepted and cannot be rejected.');
+      (err as any).statusCode = 400;
+      throw err;
+    }
+
+    if (invite.status === 'revoked') {
+      const err = new Error('This invitation has been revoked.');
+      (err as any).statusCode = 410;
+      throw err;
+    }
+
+    invite.status = 'rejected';
+    if (userEmail && !invite.email) {
+      invite.email = userEmail.trim().toLowerCase();
+    }
+
+    await this.saveInvite(invite);
+    return invite;
+  },
+
+  /**
+   * List all invites for a specific workspace across memory, disk, and Supabase
+   */
+  async getInvitesByWorkspace(workspaceId: string): Promise<StoredServerInvite[]> {
+    if (!workspaceId) return [];
+    const invitesMap = new Map<string, StoredServerInvite>();
+
+    // 1. Scan memory cache
+    if (global.__synapse_invites) {
+      for (const inv of global.__synapse_invites.values()) {
+        if (inv.workspace_id === workspaceId) {
+          invitesMap.set(inv.invite_code.toLowerCase().trim(), inv);
+        }
+      }
+    }
+
+    // 2. Scan disk cache
+    const dir = getInvitesDir();
+    try {
+      if (fs.existsSync(dir)) {
+        const files = fs.readdirSync(dir);
+        for (const file of files) {
+          if (file.endsWith('.json')) {
+            try {
+              const filePath = path.join(dir, file);
+              const data = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as StoredServerInvite;
+              if (data.workspace_id === workspaceId) {
+                const cleanCode = data.invite_code.toLowerCase().trim();
+                // Prefer freshest
+                if (!invitesMap.has(cleanCode)) {
+                  invitesMap.set(cleanCode, data);
+                }
+              }
+            } catch {}
+          }
+        }
+      }
+    } catch {}
+
+    // 3. Scan Supabase if configured
+    if (isSupabaseConfigured()) {
+      try {
+        const supabase = await createServerSupabaseClient();
+        const { data, error } = await supabase
+          .from('workspace_invites')
+          .select('*, workspaces(name, icon, slug)')
+          .eq('workspace_id', workspaceId);
+
+        if (!error && data) {
+          for (const item of data) {
+            const cleanCode = item.invite_code.toLowerCase().trim();
+            if (!invitesMap.has(cleanCode)) {
+              invitesMap.set(cleanCode, {
+                id: item.id,
+                workspace_id: item.workspace_id,
+                email: item.email,
+                role: item.role as WorkspaceRole,
+                invite_code: item.invite_code,
+                created_by: item.created_by,
+                created_at: item.created_at,
+                expires_at: item.expires_at,
+                status: item.status || 'pending',
+                workspace_name: item.workspaces?.name,
+                workspace_icon: item.workspaces?.icon,
+                workspace_slug: item.workspaces?.slug,
+              });
+            }
+          }
+        }
+      } catch {}
+    }
+
+    return Array.from(invitesMap.values()).sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+  },
 };
+

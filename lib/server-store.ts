@@ -71,7 +71,19 @@ export interface StoredWorkspaceEviction {
   evicted_at: string;
 }
 
+export interface StoredWorkspace {
+  id: string;
+  name: string;
+  slug: string;
+  icon: string;
+  owner_id: string;
+  type?: 'private' | 'shared';
+  created_at: string;
+  updated_at: string;
+}
+
 declare global {
+  var __synapse_workspaces: StoredWorkspace[] | undefined;
   var __synapse_notes: StoredNote[] | undefined;
   var __synapse_blocks: StoredBlock[] | undefined;
   var __synapse_databases: StoredDatabase[] | undefined;
@@ -257,11 +269,49 @@ if (!global.__synapse_deleted_workspaces) {
   global.__synapse_deleted_workspaces = readJsonFile<string[]>('deleted_workspaces.json', []);
 }
 
+if (!global.__synapse_workspaces) {
+  global.__synapse_workspaces = readJsonFile<StoredWorkspace[]>('workspaces.json', [
+    {
+      id: 'ws-default-synapse',
+      name: 'Personal Workspace',
+      slug: 'personal',
+      icon: '🧠',
+      owner_id: 'local-user-1',
+      type: 'private',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+  ]);
+}
+
 if (!global.__synapse_shares) {
   global.__synapse_shares = new Map();
 }
 
 export const serverStore = {
+  // Workspaces
+  getWorkspaces: (): StoredWorkspace[] => {
+    const all = global.__synapse_workspaces || [];
+    const deleted = global.__synapse_deleted_workspaces || [];
+    return all.filter((w) => !deleted.includes(w.id));
+  },
+  getWorkspace: (id: string): StoredWorkspace | undefined => {
+    if (!id || serverStore.isWorkspaceDeleted(id)) return undefined;
+    const all = global.__synapse_workspaces || [];
+    return all.find((w) => w.id === id);
+  },
+  saveWorkspace: (workspace: StoredWorkspace): StoredWorkspace => {
+    const all = global.__synapse_workspaces || [];
+    const idx = all.findIndex((w) => w.id === workspace.id);
+    if (idx >= 0) {
+      all[idx] = { ...all[idx], ...workspace, updated_at: new Date().toISOString() };
+    } else {
+      all.push(workspace);
+    }
+    global.__synapse_workspaces = all;
+    writeJsonFile('workspaces.json', all);
+    return idx >= 0 ? all[idx] : workspace;
+  },
   // Deleted workspaces
   isWorkspaceDeleted: (workspaceId: string): boolean => {
     if (!workspaceId) return false;

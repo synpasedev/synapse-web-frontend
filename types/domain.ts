@@ -86,6 +86,8 @@ export interface WorkspaceMember {
   joined_at?: string;
   created_at?: string;
   updated_at?: string;
+  last_activity_at?: string;
+  notes_contributed?: number;
 }
 
 export interface WorkspaceInvite {
@@ -97,7 +99,7 @@ export interface WorkspaceInvite {
   created_by: string;
   created_at: string;
   expires_at?: string;
-  status?: 'pending' | 'accepted' | 'consumed' | 'revoked';
+  status?: 'pending' | 'accepted' | 'consumed' | 'revoked' | 'rejected';
   is_public_link?: boolean;
 }
 

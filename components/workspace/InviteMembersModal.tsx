@@ -14,6 +14,7 @@ import {
   useRemoveMultipleMembers,
   useRevokeInvite,
   useClearWorkspaceInvites,
+  useReinviteMember,
 } from '@/hooks/use-workspace';
 import { WorkspaceRole, WorkspaceMember } from '@/types/domain';
 import { useAuth } from '@/hooks/use-auth';
@@ -40,6 +41,9 @@ import {
   Search,
   Loader2,
   Sparkles,
+  RotateCcw,
+  Clock,
+  Ban,
 } from 'lucide-react';
 
 function getRecipientName(email: string): string {
@@ -84,14 +88,42 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
   const { mutateAsync: removeMultipleMembers, isPending: isRemovingBulk } = useRemoveMultipleMembers();
   const { mutateAsync: revokeInvite } = useRevokeInvite();
   const { mutateAsync: clearWorkspaceInvites, isPending: isClearingInvites } = useClearWorkspaceInvites();
+  const { mutateAsync: reinviteMember, isPending: isReinviting } = useReinviteMember();
 
   const isInviting = isInvitingSingle || isInvitingBatch;
+
+  // Tabs state: 'members' | 'invitations' | 'invite'
+  const [activeTab, setActiveTab] = useState<'members' | 'invitations' | 'invite'>('members');
+  const [inviteStatusFilter, setInviteStatusFilter] = useState<'all' | 'pending' | 'accepted' | 'rejected'>('all');
+
+  // Computed invite categorizations
+  const pendingInvites = useMemo(() => {
+    return invites.filter(
+      (i) =>
+        i.status === 'pending' ||
+        (!i.status && (!i.expires_at || new Date(i.expires_at) > new Date()))
+    );
+  }, [invites]);
+
+  const acceptedInvites = useMemo(() => {
+    return invites.filter((i) => i.status === 'accepted' || i.status === 'consumed');
+  }, [invites]);
+
+  const rejectedInvites = useMemo(() => {
+    return invites.filter((i) => i.status === 'rejected');
+  }, [invites]);
+
+  const filteredInvites = useMemo(() => {
+    if (inviteStatusFilter === 'pending') return pendingInvites;
+    if (inviteStatusFilter === 'accepted') return acceptedInvites;
+    if (inviteStatusFilter === 'rejected') return rejectedInvites;
+    return invites;
+  }, [invites, inviteStatusFilter, pendingInvites, acceptedInvites, rejectedInvites]);
 
   // Invite tab state
   const [emailInput, setEmailInput] = useState('');
   const [role, setRole] = useState<WorkspaceRole>('editor');
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'invite' | 'members'>('invite');
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [activeTemplate, setActiveTemplate] = useState<{ email: string; code?: string } | null>(null);
   const [copiedTemplate, setCopiedTemplate] = useState<boolean>(false);
@@ -457,38 +489,62 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
         </div>
 
         {/* Tab switcher */}
-        <div className="flex items-center border-b border-border/40 px-5 pt-3 bg-secondary/10">
-          <button
-            type="button"
-            onClick={() => setActiveTab('invite')}
-            className={`pb-2.5 px-3 text-xs font-semibold border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 ${
-              activeTab === 'invite'
-                ? 'border-indigo-500 text-foreground'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <UserPlus className="w-3.5 h-3.5" />
-            <span>Invite & Add</span>
-            {parsedEmails.length > 1 && (
-              <span className="text-[10px] px-1.5 py-0.2 bg-indigo-500/20 text-indigo-300 rounded-full font-bold">
-                {parsedEmails.length}
-              </span>
-            )}
-          </button>
+        <div className="flex items-center border-b border-border/40 px-5 pt-3 bg-secondary/10 gap-1 overflow-x-auto">
           <button
             type="button"
             onClick={() => setActiveTab('members')}
-            className={`pb-2.5 px-3 text-xs font-semibold border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 ${
+            className={`pb-2.5 px-3 text-xs font-semibold border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'members'
                 ? 'border-indigo-500 text-foreground'
                 : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
           >
             <Users className="w-3.5 h-3.5" />
-            <span>Members ({members.length})</span>
+            <span>Collaborators ({members.length})</span>
             {selectedMemberIds.size > 0 && (
               <span className="text-[10px] px-1.5 py-0.2 bg-indigo-500 text-white rounded-full font-bold">
                 {selectedMemberIds.size}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('invitations')}
+            className={`pb-2.5 px-3 text-xs font-semibold border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'invitations'
+                ? 'border-indigo-500 text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5" />
+            <span>Invitations ({invites.length})</span>
+            {pendingInvites.length > 0 && (
+              <span className="text-[10px] px-1.5 py-0.2 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-full font-bold">
+                {pendingInvites.length} pending
+              </span>
+            )}
+            {rejectedInvites.length > 0 && pendingInvites.length === 0 && (
+              <span className="text-[10px] px-1.5 py-0.2 bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-full font-bold">
+                {rejectedInvites.length} declined
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('invite')}
+            className={`pb-2.5 px-3 text-xs font-semibold border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'invite'
+                ? 'border-indigo-500 text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <UserPlus className="w-3.5 h-3.5" />
+            <span>Invite New</span>
+            {parsedEmails.length > 1 && (
+              <span className="text-[10px] px-1.5 py-0.2 bg-indigo-500/20 text-indigo-300 rounded-full font-bold">
+                {parsedEmails.length}
               </span>
             )}
           </button>
@@ -860,45 +916,188 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
                 </div>
               </div>
 
-              {/* Active Invite Links */}
-              {invites.length > 0 && (
-                <div className="pt-4 border-t border-border/40">
-                  <div className="flex items-center justify-between mb-2.5">
-                    <div className="text-xs font-semibold text-foreground uppercase tracking-wider">
-                      Active Invite Links ({invites.length})
-                    </div>
+            </>
+          ) : activeTab === 'invitations' ? (
+            /* Invitations Status & Tracking Tab */
+            <div className="space-y-4">
+              {/* Filter Chips & Stats */}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 p-1 bg-secondary/40 border border-border/40 rounded-xl text-xs overflow-x-auto">
+                  <button
+                    type="button"
+                    onClick={() => setInviteStatusFilter('all')}
+                    className={`px-2.5 py-1 rounded-lg font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                      inviteStatusFilter === 'all'
+                        ? 'bg-primary text-primary-foreground shadow-xs'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    All ({invites.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInviteStatusFilter('pending')}
+                    className={`px-2.5 py-1 rounded-lg font-semibold transition-all cursor-pointer flex items-center gap-1 whitespace-nowrap ${
+                      inviteStatusFilter === 'pending'
+                        ? 'bg-amber-500 text-white shadow-xs'
+                        : 'text-muted-foreground hover:text-amber-400'
+                    }`}
+                  >
+                    <Clock className="w-3 h-3" />
+                    <span>Pending ({pendingInvites.length})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInviteStatusFilter('accepted')}
+                    className={`px-2.5 py-1 rounded-lg font-semibold transition-all cursor-pointer flex items-center gap-1 whitespace-nowrap ${
+                      inviteStatusFilter === 'accepted'
+                        ? 'bg-emerald-500 text-white shadow-xs'
+                        : 'text-muted-foreground hover:text-emerald-400'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-3 h-3" />
+                    <span>Accepted ({acceptedInvites.length})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInviteStatusFilter('rejected')}
+                    className={`px-2.5 py-1 rounded-lg font-semibold transition-all cursor-pointer flex items-center gap-1 whitespace-nowrap ${
+                      inviteStatusFilter === 'rejected'
+                        ? 'bg-rose-500 text-white shadow-xs'
+                        : 'text-muted-foreground hover:text-rose-400'
+                    }`}
+                  >
+                    <Ban className="w-3 h-3" />
+                    <span>Declined ({rejectedInvites.length})</span>
+                  </button>
+                </div>
+
+                {invites.length > 0 && (
+                  <button
+                    type="button"
+                    disabled={isClearingInvites}
+                    onClick={async () => {
+                      if (confirm('Clear all invite records for this workspace?')) {
+                        await clearWorkspaceInvites({ workspaceId });
+                      }
+                    }}
+                    className="text-[11px] text-rose-400/90 hover:text-rose-400 hover:bg-rose-500/10 px-2 py-1 rounded-lg transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                    title="Clear all invite records for this workspace"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    <span>Clear all</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Invitations List */}
+              <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+                {filteredInvites.length === 0 ? (
+                  <div className="text-center py-8 text-xs text-muted-foreground space-y-2 border border-dashed border-border/60 rounded-xl">
+                    <Clock className="w-6 h-6 text-muted-foreground/40 mx-auto" />
+                    <p>No invitations match this status filter.</p>
                     <button
                       type="button"
-                      disabled={isClearingInvites}
-                      onClick={async () => {
-                        if (confirm('Clear all active invite links for this workspace?')) {
-                          await clearWorkspaceInvites({ workspaceId });
-                        }
-                      }}
-                      className="text-[11px] text-rose-400/90 hover:text-rose-400 hover:bg-rose-500/10 px-2 py-0.5 rounded-lg transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                      title="Clear all active invite rows for this workspace"
+                      onClick={() => setActiveTab('invite')}
+                      className="text-indigo-400 hover:underline font-semibold text-xs inline-flex items-center gap-1 cursor-pointer"
                     >
-                      <Trash2 className="w-3 h-3" />
-                      <span>Clear all</span>
+                      <UserPlus className="w-3.5 h-3.5" />
+                      <span>Send an invitation</span>
                     </button>
                   </div>
-                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                    {invites.map((inv) => (
+                ) : (
+                  filteredInvites.map((inv) => {
+                    const isPending =
+                      inv.status === 'pending' ||
+                      (!inv.status && (!inv.expires_at || new Date(inv.expires_at) > new Date()));
+                    const isAccepted = inv.status === 'accepted' || inv.status === 'consumed';
+                    const isRejected = inv.status === 'rejected';
+                    const isRevoked = inv.status === 'revoked';
+
+                    return (
                       <div
                         key={inv.id}
-                        className="flex items-center justify-between p-2.5 bg-secondary/30 border border-border/40 rounded-xl text-xs"
+                        className={`p-3 rounded-xl border text-xs transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                          isRejected
+                            ? 'bg-rose-500/5 border-rose-500/30'
+                            : isAccepted
+                            ? 'bg-emerald-500/5 border-emerald-500/30'
+                            : 'bg-secondary/30 border-border/40 hover:border-border/70'
+                        }`}
                       >
-                        <div className="min-w-0 pr-2">
-                          <div className="font-mono text-[11px] font-semibold text-foreground truncate">
-                            Code: <span className="text-indigo-400">{inv.invite_code}</span>
-                            {inv.email && ` (${inv.email})`}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold text-foreground text-xs truncate">
+                              {inv.email || 'Public Shareable Link'}
+                            </span>
+
+                            {/* Status Badge */}
+                            {isPending && (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center gap-1 shrink-0">
+                                <Clock className="w-2.5 h-2.5" /> Pending
+                              </span>
+                            )}
+                            {isAccepted && (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1 shrink-0">
+                                <CheckCircle2 className="w-2.5 h-2.5" /> Accepted
+                              </span>
+                            )}
+                            {isRejected && (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30 flex items-center gap-1 shrink-0">
+                                <Ban className="w-2.5 h-2.5" /> Declined
+                              </span>
+                            )}
+                            {isRevoked && (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-secondary text-muted-foreground border border-border/60 flex items-center gap-1 shrink-0">
+                                Revoked
+                              </span>
+                            )}
                           </div>
-                          <div className="text-[10px] text-muted-foreground">
-                            Role: {inv.role} • Expires in 7 days
+
+                          <div className="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground mt-1 font-mono">
+                            <span>Role: <strong className="text-foreground capitalize">{inv.role}</strong></span>
+                            <span>•</span>
+                            <span>Code: <code className="text-indigo-400">{inv.invite_code}</code></span>
+                            {isPending && (
+                              <>
+                                <span>•</span>
+                                <span>Expires in 7 days</span>
+                              </>
+                            )}
+                            {isRejected && (
+                              <>
+                                <span>•</span>
+                                <span className="text-rose-400">Recipient declined invitation</span>
+                              </>
+                            )}
                           </div>
                         </div>
+
+                        {/* Action Buttons */}
                         <div className="flex items-center gap-1.5 shrink-0">
-                          {inv.email && (
+                          {isRejected && inv.email && (
+                            <button
+                              type="button"
+                              disabled={isReinviting}
+                              onClick={async () => {
+                                await reinviteMember({
+                                  workspaceId,
+                                  email: inv.email!,
+                                  role: inv.role,
+                                });
+                                if (sendDirectEmail) {
+                                  sendDirectInviteViaNodemailer([inv.email!]);
+                                }
+                              }}
+                              className="px-2.5 py-1 text-[11px] font-semibold text-indigo-300 bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/40 rounded-lg transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                              title="Generate new invite code and re-invite this person"
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                              <span>Re-invite</span>
+                            </button>
+                          )}
+
+                          {isPending && inv.email && (
                             <>
                               <button
                                 type="button"
@@ -909,7 +1108,7 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
                                   });
                                 }}
                                 className="p-1.5 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 rounded-lg transition-colors cursor-pointer"
-                                title="Send invite email directly via Nodemailer"
+                                title="Resend invite email directly via Nodemailer"
                               >
                                 <Send className="w-3.5 h-3.5" />
                               </button>
@@ -928,29 +1127,31 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
                               </button>
                             </>
                           )}
+
                           <button
                             type="button"
                             onClick={() => handleCopyLink(inv.invite_code, inv.email)}
                             className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors cursor-pointer"
-                            title="Copy link"
+                            title="Copy invite link"
                           >
                             <Copy className="w-3.5 h-3.5" />
                           </button>
+
                           <button
                             type="button"
                             onClick={() => revokeInvite({ inviteId: inv.id, workspaceId })}
                             className="p-1.5 text-rose-400/80 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors cursor-pointer"
-                            title="Revoke invite"
+                            title="Delete / Revoke invite record"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
+                    );
+                  })
+                )}
+              </div>
+            </div>
           ) : (
             /* Members List Tab with Batch Actions */
             <div className="space-y-3.5">

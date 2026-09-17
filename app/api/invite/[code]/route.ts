@@ -64,6 +64,13 @@ export async function GET(
       );
     }
 
+    if (invite.status === 'rejected') {
+      return NextResponse.json(
+        { error: 'This invitation has been declined.', rejected: true, invite },
+        { status: 410 }
+      );
+    }
+
     return NextResponse.json({
       success: true,
       invite,

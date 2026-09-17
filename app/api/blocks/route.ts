@@ -48,7 +48,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { noteId, workspaceId = 'ws-default-synapse', blocks = [] } = body;
+    const workspaceId = body.workspace_id || body.workspaceId || 'ws-default-synapse';
+    const { noteId, blocks = [] } = body;
 
     if (!noteId) {
       return NextResponse.json({ error: 'noteId is required' }, { status: 400 });
