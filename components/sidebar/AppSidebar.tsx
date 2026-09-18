@@ -12,6 +12,7 @@ import { useWorkspace } from '@/hooks/use-workspace';
 import { useNotes, useCreateNote } from '@/hooks/use-notes';
 import { useWhiteboards, useCreateWhiteboard } from '@/hooks/use-whiteboard';
 import { useDatabases } from '@/hooks/use-databases';
+import { useWorkspaceRealtime } from '@/hooks/use-workspace-realtime';
 import { useUIStore } from '@/stores/use-ui-store';
 import { syncEngine } from '@/lib/dexie/sync-engine';
 import { SyncState } from '@/types/sync';
@@ -60,6 +61,7 @@ export const AppSidebar: React.FC<{ workspaceId: string }> = ({ workspaceId }) =
   const { data: whiteboards } = useWhiteboards(workspaceId);
   const { mutateAsync: createWhiteboard } = useCreateWhiteboard();
   const { data: databases } = useDatabases(workspaceId);
+  const { isConnected: isWsConnected, activeMembers } = useWorkspaceRealtime(workspaceId);
 
   const [syncState, setSyncState] = useState<SyncState>({
     isOnline: true,
@@ -69,6 +71,7 @@ export const AppSidebar: React.FC<{ workspaceId: string }> = ({ workspaceId }) =
   });
 
   useEffect(() => {
+    setMounted(true);
     return syncEngine.subscribe((state) => setSyncState(state));
   }, []);
 
@@ -580,18 +583,34 @@ export const AppSidebar: React.FC<{ workspaceId: string }> = ({ workspaceId }) =
             <UserProfile />
           </div>
           <div
+            suppressHydrationWarning
             className="p-1.5 flex items-center gap-1.5 shrink-0"
-            title={syncState.isSyncing ? 'Syncing...' : syncState.isOnline ? 'Local Engine Active' : 'Offline Mode'}
+            title={
+              mounted && isWsConnected
+                ? `Live WebSocket sync • ${activeMembers} member${activeMembers > 1 ? 's' : ''} online`
+                : syncState.isSyncing
+                ? 'Syncing...'
+                : syncState.isOnline
+                ? 'Local Engine Active'
+                : 'Offline Mode'
+            }
           >
             <span
               className={`w-2 h-2 rounded-full transition-colors duration-300 ${
-                syncState.isSyncing
+                mounted && isWsConnected
+                  ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]'
+                  : syncState.isSyncing
                   ? 'bg-sky-400 animate-pulse'
                   : syncState.isOnline
                   ? 'bg-emerald-400'
                   : 'bg-amber-400'
               }`}
             />
+            {mounted && isWsConnected && (
+              <span className="text-[10px] text-emerald-400/80 font-mono tracking-wider font-semibold">
+                LIVE
+              </span>
+            )}
           </div>
         </div>
       </div>

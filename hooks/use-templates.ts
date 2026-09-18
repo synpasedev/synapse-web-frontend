@@ -2,14 +2,30 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { localDb } from '@/lib/dexie/db';
 import { ensureSeedData } from '@/lib/dexie/seed';
 import { Template } from '@/types/domain';
+import { getBuiltinTemplates } from '@/lib/templates/builtin-templates';
 
 export function useTemplates(workspaceId: string) {
   return useQuery({
     queryKey: ['templates', workspaceId],
     queryFn: async (): Promise<Template[]> => {
       await ensureSeedData();
-      return await localDb.templates.where('workspace_id').equals(workspaceId).toArray();
+      if (!workspaceId) return [];
+
+      const all = await localDb.templates.toArray();
+      const existing = all.filter(
+        (t) => t.workspace_id === workspaceId || t.workspace_id === 'builtin'
+      );
+
+      if (existing.length > 0) {
+        return existing;
+      }
+
+      // Seed built-in templates into localDb for this workspace
+      const builtins = getBuiltinTemplates(workspaceId);
+      await localDb.templates.bulkPut(builtins);
+      return builtins;
     },
+    enabled: Boolean(workspaceId),
   });
 }
 
@@ -21,7 +37,7 @@ export function useCreateTemplate() {
       const now = new Date().toISOString();
       const newTemplate: Template = {
         ...template,
-        id: crypto.randomUUID(),
+        id: `tmpl-custom-${crypto.randomUUID().slice(0, 8)}`,
         created_at: now,
         updated_at: now,
       };
@@ -30,6 +46,20 @@ export function useCreateTemplate() {
     },
     onSuccess: (newTemplate) => {
       queryClient.invalidateQueries({ queryKey: ['templates', newTemplate.workspace_id] });
+    },
+  });
+}
+
+export function useDeleteTemplate() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, workspaceId }: { id: string; workspaceId: string }) => {
+      await localDb.templates.delete(id);
+      return { id, workspaceId };
+    },
+    onSuccess: ({ workspaceId }) => {
+      queryClient.invalidateQueries({ queryKey: ['templates', workspaceId] });
     },
   });
 }

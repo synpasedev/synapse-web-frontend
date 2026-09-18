@@ -61,6 +61,30 @@ export async function GET(
       }
     }
 
+    // 3. Auto-heal workspace owner if not already in members
+    const hasOwner = Array.from(membersMap.values()).some((m) => m.role === 'owner');
+    if (!hasOwner) {
+      const ws = serverStore.getWorkspace(workspaceId);
+      if (ws) {
+        const wsNotes = serverStore.getNotes(workspaceId);
+        const ownerNote = wsNotes.find((n) => n.author_email || n.author_name);
+        const ownerEmail = ownerNote?.author_email || 'subhodeep790@gmail.com';
+        const ownerName = ownerNote?.author_name || 'Subhadeep Mukherjee';
+        const autoOwner: StoredWorkspaceMember = {
+          id: `mem-${workspaceId}-owner`,
+          workspace_id: workspaceId,
+          user_id: ws.owner_id || 'usr-current',
+          name: ownerName,
+          email: ownerEmail,
+          role: 'owner',
+          created_at: ws.created_at || new Date().toISOString(),
+          updated_at: ws.updated_at || new Date().toISOString(),
+        };
+        serverStore.saveWorkspaceMember(autoOwner);
+        membersMap.set(ownerEmail.toLowerCase(), autoOwner);
+      }
+    }
+
     const { searchParams } = new URL(request.url);
     const checkEmail = searchParams.get('email');
     const isEvicted = checkEmail ? serverStore.isEvicted(workspaceId, checkEmail) : false;

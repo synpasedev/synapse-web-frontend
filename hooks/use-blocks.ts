@@ -5,6 +5,7 @@ import { ensureSeedData } from '@/lib/dexie/seed';
 import { getCurrentUserInfo } from '@/hooks/use-auth';
 import { Block } from '@/types/domain';
 import { broadcastTabSync } from '@/lib/dexie/tab-sync';
+import { synapseRealtime } from '@/lib/realtime/ws-client';
 
 export function useBlocks(noteId: string) {
   return useQuery({
@@ -49,7 +50,6 @@ export function useBlocks(noteId: string) {
       return blocks;
     },
     enabled: Boolean(noteId),
-    refetchInterval: 3000,
     refetchOnWindowFocus: true,
   });
 }
@@ -94,6 +94,9 @@ export function useMutateBlocks(noteId: string) {
       // 2. Dispatch to shared server store with workspaceId
       const parentNote = await localDb.notes.get(noteId);
       const wsId = parentNote?.workspace_id || enrichedBlocks[0]?.workspace_id || 'ws-default-synapse';
+
+      // Instantly broadcast block edits over WebSocket to all workspace members (chat-style)
+      synapseRealtime.sendBlocksChange(wsId, noteId, enrichedBlocks);
 
       fetch('/api/blocks', {
         method: 'POST',

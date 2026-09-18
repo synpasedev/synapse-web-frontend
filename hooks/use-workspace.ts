@@ -1,8 +1,53 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { localDb } from '@/lib/dexie/db';
 import { ensureSeedData } from '@/lib/dexie/seed';
-import { Workspace, WorkspaceMember, WorkspaceInvite, WorkspaceRole, WorkspaceType, Note } from '@/types/domain';
+import { Workspace, WorkspaceMember, WorkspaceInvite, WorkspaceRole, WorkspaceType, Note, Block } from '@/types/domain';
 import { broadcastTabSync } from '@/lib/dexie/tab-sync';
+
+export async function syncWorkspaceNotesAndBlocksToServer(workspaceId: string) {
+  if (!workspaceId) return;
+  try {
+    const ws = await localDb.workspaces.get(workspaceId);
+    if (ws && ws.type !== 'shared') {
+      await localDb.workspaces.update(workspaceId, { type: 'shared' });
+      fetch('/api/workspaces', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...ws, type: 'shared' }),
+      }).catch(() => {});
+    }
+
+    const localNotes = await localDb.notes
+      .where('workspace_id')
+      .equals(workspaceId)
+      .and((n) => !n.is_archived)
+      .toArray();
+
+    if (localNotes.length > 0) {
+      await fetch('/api/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: localNotes, workspaceId }),
+      }).catch((e) => console.warn('[syncWorkspaceNotes] Notes warning:', e));
+
+      const noteIds = localNotes.map((n) => n.id);
+      const localBlocks = await localDb.blocks
+        .where('note_id')
+        .anyOf(noteIds)
+        .toArray();
+
+      if (localBlocks.length > 0) {
+        await fetch('/api/blocks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workspaceId, blocks: localBlocks }),
+        }).catch((e) => console.warn('[syncWorkspaceNotes] Blocks warning:', e));
+      }
+    }
+  } catch (err: any) {
+    console.warn('[syncWorkspaceNotes] Warning:', err?.message);
+  }
+}
 
 export function useWorkspace(workspaceId: string) {
   return useQuery({
@@ -17,9 +62,14 @@ export function useWorkspace(workspaceId: string) {
         .equals(workspaceId)
         .count();
 
+      const isShared = ws.type === 'shared' || membersCount > 1;
+      if (isShared && ws.type !== 'shared') {
+        await localDb.workspaces.update(workspaceId, { type: 'shared' });
+      }
+
       return {
         ...ws,
-        type: ws.type || 'private',
+        type: isShared ? 'shared' : (ws.type || 'private'),
         role: ws.role || 'owner',
         members_count: Math.max(1, membersCount),
       };
@@ -35,15 +85,30 @@ export function useWorkspaces() {
       await ensureSeedData();
       const allWorkspaces = await localDb.workspaces.toArray();
 
+      // Automatically sync notes and blocks of shared workspaces to server store
+      for (const ws of allWorkspaces) {
+        const membersCount = await localDb.workspace_members
+          .where('workspace_id')
+          .equals(ws.id)
+          .count();
+        if (ws.type === 'shared' || membersCount > 1) {
+          syncWorkspaceNotesAndBlocksToServer(ws.id).catch(() => {});
+        }
+      }
+
       const enriched = await Promise.all(
         allWorkspaces.map(async (ws) => {
           const membersCount = await localDb.workspace_members
             .where('workspace_id')
             .equals(ws.id)
             .count();
+          const isShared = ws.type === 'shared' || membersCount > 1;
+          if (isShared && ws.type !== 'shared') {
+            await localDb.workspaces.update(ws.id, { type: 'shared' });
+          }
           return {
             ...ws,
-            type: ws.type || 'private',
+            type: isShared ? 'shared' : (ws.type || 'private'),
             role: ws.role || 'owner',
             members_count: Math.max(1, membersCount),
           };
@@ -137,12 +202,13 @@ export function useWorkspaceMembers(workspaceId: string) {
           // 2. Add or update remote members
           for (const rm of remoteMembers) {
             if (!rm.email) continue;
+            const cleanRmEmail = rm.email.trim().toLowerCase();
             const existing = await localDb.workspace_members
               .where('workspace_id')
               .equals(workspaceId)
               .toArray();
             const match = existing.find(
-              (m) => m.email?.trim().toLowerCase() === rm.email.trim().toLowerCase()
+              (m) => m.email?.trim().toLowerCase() === cleanRmEmail
             );
             if (!match) {
               await localDb.workspace_members.put({
@@ -157,18 +223,51 @@ export function useWorkspaceMembers(workspaceId: string) {
                 created_at: rm.created_at || new Date().toISOString(),
                 updated_at: rm.updated_at || new Date().toISOString(),
               });
+            } else {
+              // Server is authoritative for role and name: update local if differs
+              if (match.role !== rm.role || match.name !== rm.name || match.avatar_url !== rm.avatar_url) {
+                await localDb.workspace_members.update(match.id, {
+                  role: rm.role || match.role,
+                  name: rm.name || match.name,
+                  avatar_url: rm.avatar_url || match.avatar_url,
+                });
+              }
             }
           }
 
-          // 3. Purge non-owner members locally that were removed on server
-          if (remoteMembers.length > 0) {
-            const remoteEmails = new Set(remoteMembers.map((m) => m.email?.trim().toLowerCase()).filter(Boolean));
-            const localExisting = await localDb.workspace_members.where('workspace_id').equals(workspaceId).toArray();
-            const toPurgeLocal = localExisting
-              .filter((m) => m.role !== 'owner' && m.email && !remoteEmails.has(m.email.trim().toLowerCase()))
-              .map((m) => m.id);
-            if (toPurgeLocal.length > 0) {
-              await localDb.workspace_members.bulkDelete(toPurgeLocal);
+          // 3. Bidirectional sync: Push local members missing from remote to server
+          const remoteEmails = new Set(remoteMembers.map((m) => m.email?.trim().toLowerCase()).filter(Boolean));
+          const localExisting = await localDb.workspace_members.where('workspace_id').equals(workspaceId).toArray();
+          for (const lm of localExisting) {
+            const cleanLmEmail = lm.email?.trim().toLowerCase();
+            if (cleanLmEmail && cleanLmEmail !== 'user@synapse.local' && cleanLmEmail !== 'guest@synapse.local') {
+              if (!remoteEmails.has(cleanLmEmail)) {
+                fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/members`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ member: lm }),
+                }).catch(() => {});
+              }
+            }
+          }
+
+          // 4. Purge placeholder or obsolete members
+          const toPurgeLocal = localExisting
+            .filter((m) => {
+              const clean = m.email?.trim().toLowerCase();
+              if (!clean || clean === 'user@synapse.local' || clean === 'guest@synapse.local') return true;
+              return m.role !== 'owner' && !remoteEmails.has(clean);
+            })
+            .map((m) => m.id);
+          if (toPurgeLocal.length > 0) {
+            await localDb.workspace_members.bulkDelete(toPurgeLocal);
+          }
+
+          // 5. Ensure workspace is marked shared locally if multiple members
+          if (remoteMembers.length > 1) {
+            const currentWs = await localDb.workspaces.get(workspaceId);
+            if (currentWs && currentWs.type !== 'shared') {
+              await localDb.workspaces.update(workspaceId, { type: 'shared' });
             }
           }
         }
@@ -181,9 +280,11 @@ export function useWorkspaceMembers(workspaceId: string) {
         .equals(workspaceId)
         .toArray();
 
-      // Auto-heal owner email if it was previously set to 'user@synapse.local'
+      // Only auto-heal owner email if current user is actually the owner of this workspace
+      const currentWs = await localDb.workspaces.get(workspaceId);
+      const isCurrentWsOwner = !currentWs || currentWs.role === 'owner' || currentWs.owner_id === 'usr-current' || currentWs.owner_id === 'local-user-1';
       const currentUser = getCurrentUserEmailAndName();
-      if (currentUser.email && currentUser.email !== 'user@synapse.local') {
+      if (isCurrentWsOwner && currentUser.email && currentUser.email !== 'user@synapse.local') {
         for (const member of members) {
           if (
             member.role === 'owner' &&
@@ -199,13 +300,13 @@ export function useWorkspaceMembers(workspaceId: string) {
         }
       }
 
-      // Auto-deduplicate non-owner members by email
+      // Deduplicate members strictly by email
       const seenMemberEmails = new Set<string>();
       const duplicateMemberIds: string[] = [];
       const uniqueMembers: WorkspaceMember[] = [];
       for (const m of members) {
         const key = m.email ? m.email.trim().toLowerCase() : m.id;
-        if (m.role !== 'owner' && seenMemberEmails.has(key)) {
+        if (seenMemberEmails.has(key)) {
           duplicateMemberIds.push(m.id);
         } else {
           seenMemberEmails.add(key);
@@ -216,10 +317,18 @@ export function useWorkspaceMembers(workspaceId: string) {
         await localDb.workspace_members.bulkDelete(duplicateMemberIds);
       }
 
+      // Deterministic sort: Owner first, then Admin, Editor, Viewer, then alphabetically by name
+      const roleRank: Record<string, number> = { owner: 0, admin: 1, editor: 2, viewer: 3 };
+      uniqueMembers.sort((a, b) => {
+        const rankA = roleRank[a.role] ?? 99;
+        const rankB = roleRank[b.role] ?? 99;
+        if (rankA !== rankB) return rankA - rankB;
+        return (a.name || a.email || '').localeCompare(b.name || b.email || '');
+      });
+
       return uniqueMembers;
     },
     enabled: Boolean(workspaceId),
-    refetchInterval: 5000,
     refetchOnWindowFocus: true,
   });
 }
@@ -284,7 +393,6 @@ export function useWorkspaceInvites(workspaceId: string) {
       return uniqueInvites;
     },
     enabled: Boolean(workspaceId),
-    refetchInterval: 4000,
     refetchOnWindowFocus: true,
   });
 }
@@ -335,8 +443,9 @@ export function useCreateWorkspace() {
       };
 
       // Create an initial welcome note so the new workspace is functional
+      const welcomeNoteId = `note-${crypto.randomUUID().slice(0, 8)}`;
       const welcomeNote: Note = {
-        id: `note-${crypto.randomUUID().slice(0, 8)}`,
+        id: welcomeNoteId,
         workspace_id: newWsId,
         parent_id: null,
         title: `${name} Home ⚡`,
@@ -345,25 +454,76 @@ export function useCreateWorkspace() {
         is_favorite: true,
         is_archived: false,
         is_public: false,
-        created_by: 'local-user-1',
-        updated_by: 'local-user-1',
+        created_by: currentUser.name || currentUser.email || 'local-user-1',
+        updated_by: currentUser.name || currentUser.email || 'local-user-1',
+        author_name: currentUser.name,
+        author_email: currentUser.email,
         created_at: now,
         updated_at: now,
         version: 1,
       };
 
-      await localDb.transaction('rw', [localDb.workspaces, localDb.workspace_members, localDb.notes], async () => {
+      const welcomeBlockHeading: Block = {
+        id: `block-${crypto.randomUUID().slice(0, 8)}`,
+        note_id: welcomeNoteId,
+        workspace_id: newWsId,
+        type: 'heading_1',
+        content: { text: `Welcome to ${name}` },
+        properties: { level: 1 },
+        sort_order: 1000,
+        created_by: currentUser.name || currentUser.email || 'local-user-1',
+        updated_by: currentUser.name || currentUser.email || 'local-user-1',
+        created_at: now,
+        updated_at: now,
+        parent_block_id: null,
+        version: 1,
+      };
+
+      const welcomeBlockParagraph: Block = {
+        id: `block-${crypto.randomUUID().slice(0, 8)}`,
+        note_id: welcomeNoteId,
+        workspace_id: newWsId,
+        type: 'paragraph',
+        content: { text: 'Start writing notes, adding tasks, and collaborating with your team.' },
+        properties: {},
+        sort_order: 2000,
+        created_by: currentUser.name || currentUser.email || 'local-user-1',
+        updated_by: currentUser.name || currentUser.email || 'local-user-1',
+        created_at: now,
+        updated_at: now,
+        parent_block_id: null,
+        version: 1,
+      };
+
+      await localDb.transaction('rw', [localDb.workspaces, localDb.workspace_members, localDb.notes, localDb.blocks], async () => {
         await localDb.workspaces.put(newWorkspace);
         await localDb.workspace_members.put(ownerMember);
         await localDb.notes.put(welcomeNote);
+        await localDb.blocks.bulkPut([welcomeBlockHeading, welcomeBlockParagraph]);
       });
 
-      // Synchronize workspace to shared server store
+      // Synchronize workspace, welcome note, and blocks to shared server store
       fetch('/api/workspaces', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newWorkspace),
       }).catch((err) => console.warn('[useCreateWorkspace] Server sync notice:', err));
+
+      fetch('/api/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(welcomeNote),
+      }).catch((err) => console.warn('[useCreateWorkspace] Note sync notice:', err));
+
+      fetch('/api/blocks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          noteId: welcomeNoteId,
+          workspaceId: newWsId,
+          blocks: [welcomeBlockHeading, welcomeBlockParagraph],
+        }),
+      }).catch((err) => console.warn('[useCreateWorkspace] Blocks sync notice:', err));
 
       return newWorkspace;
     },
@@ -471,6 +631,9 @@ export function useInviteMember() {
             },
           }),
         }).catch((e) => console.warn('[useInviteMember] Server sync notice:', e.message));
+
+        // Immediately sync all workspace notes & blocks to server store so invitee can view them
+        syncWorkspaceNotesAndBlocksToServer(workspaceId).catch(() => {});
       } catch {}
 
       return { invite: newInvite };
@@ -717,6 +880,9 @@ export function useBatchInviteMembers() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ invites: enrichedBatch }),
           }).catch((e) => console.warn('[useBatchInviteMembers] Server sync notice:', e.message));
+
+          // Immediately sync all workspace notes & blocks to server store so invitees can view them
+          syncWorkspaceNotesAndBlocksToServer(workspaceId).catch(() => {});
         } catch {}
       }
 
@@ -1124,15 +1290,27 @@ export function useAcceptInvite() {
           }
         } catch {}
 
-        // Ensure at least one welcome note exists for this workspace
+        // Pull remote blocks for this shared workspace
+        try {
+          const blocksRes = await fetch(`/api/blocks?workspaceId=${encodeURIComponent(targetInvite.workspace_id)}`);
+          if (blocksRes.ok) {
+            const blocksJson = await blocksRes.json();
+            if (Array.isArray(blocksJson.data) && blocksJson.data.length > 0) {
+              await localDb.blocks.bulkPut(blocksJson.data);
+            }
+          }
+        } catch {}
+
+        // Ensure at least one welcome note exists for this workspace if server was completely empty
         const notesCount = await localDb.notes
           .where('workspace_id')
           .equals(targetInvite.workspace_id)
           .count();
 
         if (notesCount === 0) {
+          const starterNoteId = `note-${crypto.randomUUID().slice(0, 8)}`;
           const starterNote: Note = {
-            id: `note-${crypto.randomUUID().slice(0, 8)}`,
+            id: starterNoteId,
             workspace_id: targetInvite.workspace_id,
             parent_id: null,
             title: `Welcome to ${ws.name} ⚡`,
@@ -1147,7 +1325,39 @@ export function useAcceptInvite() {
             updated_at: now,
             version: 1,
           };
+          const starterBlock: Block = {
+            id: `block-${crypto.randomUUID().slice(0, 8)}`,
+            note_id: starterNoteId,
+            workspace_id: targetInvite.workspace_id,
+            type: 'paragraph',
+            content: { text: `Welcome to the shared workspace ${ws.name}.` },
+            properties: {},
+            sort_order: 1000,
+            created_by: 'system',
+            updated_by: 'system',
+            created_at: now,
+            updated_at: now,
+            parent_block_id: null,
+            version: 1,
+          };
           await localDb.notes.put(starterNote);
+          await localDb.blocks.put(starterBlock);
+
+          fetch('/api/notes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(starterNote),
+          }).catch(() => {});
+
+          fetch('/api/blocks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              noteId: starterNoteId,
+              workspaceId: targetInvite.workspace_id,
+              blocks: [starterBlock],
+            }),
+          }).catch(() => {});
         }
 
         return { workspaceId: targetInvite.workspace_id, workspace: ws };

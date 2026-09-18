@@ -1,0 +1,342 @@
+import { localDb } from '@/lib/dexie/db';
+import { broadcastTabSync } from '@/lib/dexie/tab-sync';
+import { Note, Block } from '@/types/domain';
+
+export type RealtimeEventType =
+  | 'CONNECTED'
+  | 'DISCONNECTED'
+  | 'SYNC_TICK'
+  | 'SYNC_FULL'
+  | 'NOTE_UPDATED'
+  | 'BLOCKS_UPDATED'
+  | 'MEMBER_JOINED'
+  | 'MEMBER_LEFT';
+
+export interface RealtimeEvent {
+  type: RealtimeEventType;
+  workspaceId?: string;
+  noteId?: string;
+  note?: Note;
+  notes?: Note[];
+  blocks?: Block[];
+  user?: any;
+  activeMembers?: number;
+  timestamp?: number;
+}
+
+type Listener = (event: RealtimeEvent) => void;
+
+class SynapseRealtimeClient {
+  private ws: WebSocket | null = null;
+  private listeners: Set<Listener> = new Set();
+  private currentWorkspaceId: string = '';
+  private currentUser: { name?: string; email?: string; id?: string } | null = null;
+  private reconnectTimer: NodeJS.Timeout | null = null;
+  private fallbackInterval: NodeJS.Timeout | null = null;
+  private _isConnected: boolean = false;
+  private lastSyncTime: number = 0;
+
+  constructor() {
+    if (typeof window !== 'undefined') {
+      this.init();
+    }
+  }
+
+  public get isConnected(): boolean {
+    return this._isConnected;
+  }
+
+  public subscribe(listener: Listener): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private notify(event: RealtimeEvent) {
+    this.listeners.forEach((l) => {
+      try {
+        l(event);
+      } catch (e) {
+        console.error('[RealtimeClient] Listener error:', e);
+      }
+    });
+  }
+
+  private getWsUrl(): string {
+    if (process.env.NEXT_PUBLIC_WS_URL) {
+      return process.env.NEXT_PUBLIC_WS_URL;
+    }
+    if (typeof window !== 'undefined') {
+      const isHttps = window.location.protocol === 'https:';
+      const protocol = isHttps ? 'wss:' : 'ws:';
+      const hostname = window.location.hostname || 'localhost';
+      return `${protocol}//${hostname}:3001`;
+    }
+    return 'ws://localhost:3001';
+  }
+
+  private init() {
+    if (typeof window === 'undefined') return;
+
+    try {
+      const url = this.getWsUrl();
+      this.ws = new WebSocket(url);
+
+      this.ws.onopen = () => {
+        this._isConnected = true;
+        this.notify({ type: 'CONNECTED', timestamp: Date.now() });
+
+        // If we were already in a workspace, re-join immediately
+        if (this.currentWorkspaceId) {
+          this.joinWorkspace(this.currentWorkspaceId, this.currentUser || undefined);
+        }
+      };
+
+      this.ws.onmessage = async (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          await this.handleIncomingMessage(msg);
+        } catch (e) {
+          console.warn('[RealtimeClient] JSON parse error:', e);
+        }
+      };
+
+      this.ws.onclose = () => {
+        this._isConnected = false;
+        this.notify({ type: 'DISCONNECTED', timestamp: Date.now() });
+        this.scheduleReconnect();
+      };
+
+      this.ws.onerror = () => {
+        if (this.ws) {
+          this.ws.close();
+        }
+      };
+    } catch {
+      this.scheduleReconnect();
+    }
+  }
+
+  private scheduleReconnect() {
+    if (this.reconnectTimer) return;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.init();
+    }, 2000);
+  }
+
+  public joinWorkspace(workspaceId: string, user?: { name?: string; email?: string; id?: string }) {
+    if (!workspaceId) return;
+    this.currentWorkspaceId = workspaceId;
+    if (user) this.currentUser = user;
+
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(
+        JSON.stringify({
+          type: 'JOIN',
+          workspaceId,
+          user: this.currentUser,
+        })
+      );
+    } else {
+      // Fallback: pull HTTP sync immediately
+      this.pullHttpSync(workspaceId);
+    }
+  }
+
+  public sendNoteChange(workspaceId: string, note: Note) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(
+        JSON.stringify({
+          type: 'NOTE_CHANGE',
+          workspaceId,
+          note,
+          user: this.currentUser,
+        })
+      );
+    }
+  }
+
+  public sendBlocksChange(workspaceId: string, noteId: string, blocks: Block[]) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(
+        JSON.stringify({
+          type: 'BLOCKS_CHANGE',
+          workspaceId,
+          noteId,
+          blocks,
+          user: this.currentUser,
+        })
+      );
+    }
+  }
+
+  public requestSync(workspaceId: string) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(
+        JSON.stringify({
+          type: 'REQUEST_SYNC',
+          workspaceId,
+        })
+      );
+    } else {
+      this.pullHttpSync(workspaceId);
+    }
+  }
+
+  private async handleIncomingMessage(msg: any) {
+    if (!msg || !msg.type) return;
+
+    switch (msg.type) {
+      case 'SYNC_TICK':
+      case 'SYNC_FULL': {
+        const { workspaceId, notes, blocks, activeMembers, timestamp } = msg;
+        if (!workspaceId || workspaceId !== this.currentWorkspaceId) return;
+
+        let hasNewData = false;
+
+        // Apply shared notes into localDb
+        if (Array.isArray(notes) && notes.length > 0) {
+          for (const remote of notes) {
+            const local = await localDb.notes.get(remote.id);
+            if (!local) {
+              await localDb.notes.put(remote);
+              hasNewData = true;
+            } else {
+              const localTime = new Date(local.updated_at).getTime();
+              const remoteTime = new Date(remote.updated_at).getTime();
+              if (remoteTime > localTime) {
+                await localDb.notes.put({ ...local, ...remote });
+                hasNewData = true;
+              }
+            }
+          }
+        }
+
+        // Apply shared blocks into localDb
+        if (Array.isArray(blocks) && blocks.length > 0) {
+          for (const remoteBlock of blocks) {
+            const localBlock = await localDb.blocks.get(remoteBlock.id);
+            if (!localBlock) {
+              await localDb.blocks.put(remoteBlock);
+              hasNewData = true;
+            } else {
+              const localTime = new Date(localBlock.updated_at).getTime();
+              const remoteTime = new Date(remoteBlock.updated_at).getTime();
+              if (remoteTime > localTime) {
+                await localDb.blocks.put({ ...localBlock, ...remoteBlock });
+                hasNewData = true;
+              }
+            }
+          }
+        }
+
+        this.lastSyncTime = timestamp || Date.now();
+
+        this.notify({
+          type: msg.type,
+          workspaceId,
+          notes,
+          blocks,
+          activeMembers,
+          timestamp: this.lastSyncTime,
+        });
+
+        if (hasNewData) {
+          broadcastTabSync({ type: 'NOTES_CHANGED', workspaceId });
+        }
+        break;
+      }
+
+      case 'NOTE_UPDATED': {
+        const { workspaceId, note } = msg;
+        if (workspaceId && note) {
+          await localDb.notes.put(note);
+          this.notify({
+            type: 'NOTE_UPDATED',
+            workspaceId,
+            note,
+            timestamp: Date.now(),
+          });
+          broadcastTabSync({ type: 'NOTE_MUTATED', noteId: note.id, workspaceId });
+        }
+        break;
+      }
+
+      case 'BLOCKS_UPDATED': {
+        const { workspaceId, noteId, blocks } = msg;
+        if (noteId && Array.isArray(blocks)) {
+          await localDb.transaction('rw', [localDb.blocks], async () => {
+            const existing = await localDb.blocks.where('note_id').equals(noteId).toArray();
+            if (existing.length > 0) {
+              await localDb.blocks.bulkDelete(existing.map((b) => b.id));
+            }
+            await localDb.blocks.bulkPut(blocks);
+          });
+
+          this.notify({
+            type: 'BLOCKS_UPDATED',
+            workspaceId,
+            noteId,
+            blocks,
+            timestamp: Date.now(),
+          });
+          broadcastTabSync({ type: 'NOTE_MUTATED', noteId, workspaceId });
+        }
+        break;
+      }
+
+      case 'MEMBER_JOINED':
+      case 'MEMBER_LEFT': {
+        this.notify(msg);
+        break;
+      }
+
+      default:
+        break;
+    }
+  }
+
+  private async pullHttpSync(workspaceId: string) {
+    if (!workspaceId) return;
+    try {
+      const [notesRes, blocksRes] = await Promise.all([
+        fetch(`/api/notes?workspaceId=${encodeURIComponent(workspaceId)}`),
+        fetch(`/api/blocks?workspaceId=${encodeURIComponent(workspaceId)}`),
+      ]);
+
+      if (notesRes.ok) {
+        const notesJson = await notesRes.json();
+        if (Array.isArray(notesJson.data) && notesJson.data.length > 0) {
+          for (const remote of notesJson.data) {
+            const local = await localDb.notes.get(remote.id);
+            if (!local || new Date(remote.updated_at).getTime() > new Date(local.updated_at).getTime()) {
+              await localDb.notes.put(remote);
+            }
+          }
+        }
+      }
+
+      if (blocksRes.ok) {
+        const blocksJson = await blocksRes.json();
+        if (Array.isArray(blocksJson.data) && blocksJson.data.length > 0) {
+          for (const remoteBlock of blocksJson.data) {
+            const localBlock = await localDb.blocks.get(remoteBlock.id);
+            if (!localBlock || new Date(remoteBlock.updated_at).getTime() > new Date(localBlock.updated_at).getTime()) {
+              await localDb.blocks.put(remoteBlock);
+            }
+          }
+        }
+      }
+
+      this.notify({
+        type: 'SYNC_TICK',
+        workspaceId,
+        timestamp: Date.now(),
+      });
+    } catch {}
+  }
+}
+
+export const synapseRealtime = new SynapseRealtimeClient();

@@ -6,20 +6,23 @@ import { serverStore } from '@/lib/server-store';
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const noteId = searchParams.get('noteId');
+  const workspaceId = searchParams.get('workspaceId') || searchParams.get('workspace_id');
 
-  if (!noteId) {
-    return NextResponse.json({ error: 'noteId parameter is required' }, { status: 400 });
+  if (!noteId && !workspaceId) {
+    return NextResponse.json({ error: 'noteId or workspaceId parameter is required' }, { status: 400 });
   }
 
   let dbBlocks: any[] = [];
   if (isSupabaseConfigured()) {
     try {
       const supabase = await createServerSupabaseClient();
-      const { data, error } = await supabase
-        .from('blocks')
-        .select('*')
-        .eq('note_id', noteId)
-        .order('sort_order', { ascending: true });
+      let query = supabase.from('blocks').select('*');
+      if (noteId) {
+        query = query.eq('note_id', noteId);
+      } else if (workspaceId) {
+        query = query.eq('workspace_id', workspaceId);
+      }
+      const { data, error } = await query.order('sort_order', { ascending: true });
 
       if (!error && data && data.length > 0) {
         dbBlocks = data;
@@ -29,7 +32,12 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const serverBlocks = serverStore.getBlocks(noteId);
+  const serverBlocks = noteId
+    ? serverStore.getBlocks(noteId)
+    : workspaceId
+    ? serverStore.getBlocksByWorkspace(workspaceId)
+    : [];
+
   const blockMap = new Map<string, any>();
   for (const b of serverBlocks) {
     blockMap.set(b.id, b);
@@ -51,8 +59,8 @@ export async function POST(request: NextRequest) {
     const workspaceId = body.workspace_id || body.workspaceId || 'ws-default-synapse';
     const { noteId, blocks = [] } = body;
 
-    if (!noteId) {
-      return NextResponse.json({ error: 'noteId is required' }, { status: 400 });
+    if (!noteId && (!Array.isArray(blocks) || blocks.length === 0)) {
+      return NextResponse.json({ error: 'noteId or blocks array is required' }, { status: 400 });
     }
 
     // Check if workspace has been deleted (EC-6.1)
@@ -79,8 +87,8 @@ export async function POST(request: NextRequest) {
 
     const formatted = blocks.map((block: any, idx: number) => ({
       id: block.id || crypto.randomUUID(),
-      note_id: noteId,
-      workspace_id: workspaceId,
+      note_id: block.note_id || noteId,
+      workspace_id: workspaceId || block.workspace_id,
       type: block.type || 'paragraph',
       content: block.content || {},
       properties: block.properties || {},
@@ -102,7 +110,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const saved = serverStore.saveBlocks(noteId, formatted, workspaceId);
+    let saved: any[];
+    if (noteId) {
+      saved = serverStore.saveBlocks(noteId, formatted, workspaceId);
+    } else {
+      saved = serverStore.bulkSaveBlocks(formatted, workspaceId);
+    }
 
     return NextResponse.json({ message: 'Blocks saved successfully', data: saved, count: saved.length });
   } catch (err: any) {

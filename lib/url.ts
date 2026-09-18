@@ -1,33 +1,50 @@
 /**
+ * Application URL Constants
+ */
+export const PRODUCTION_SITE_URL = 'https://synapse-web-frontend-vercel.vercel.app';
+export const LOCAL_DEV_SITE_URL = 'http://localhost:3000';
+
+/**
+ * Checks whether the current runtime environment is development mode
+ */
+export function isDevelopmentMode(): boolean {
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+  }
+  return process.env.NODE_ENV === 'development';
+}
+
+/**
  * Helper to get the canonical base URL for the application across:
- * - Browser runtime (window.location.origin — always matches the actual origin)
- * - Vercel deployments & previews (VERCEL_URL / NEXT_PUBLIC_VERCEL_URL)
- * - Custom production domains (NEXT_PUBLIC_SITE_URL)
- * - Local development (http://localhost:3000)
+ * - Browser runtime (window.location.origin — always matches the active origin)
+ * - Development mode (defaults to http://localhost:3000 or window.location.origin)
+ * - Production mode (defaults to https://synapse-web-frontend-vercel.vercel.app)
+ * - Environment variables (NEXT_PUBLIC_SITE_URL / NEXT_PUBLIC_APP_URL / VERCEL_PROJECT_PRODUCTION_URL)
  */
 export function getURL(path: string = ''): string {
   // 1. Browser context: ALWAYS use the active window's origin
-  // This guarantees that whether the user is on localhost, Vercel preview (*.vercel.app),
-  // or a custom domain, client redirects always stay on the current origin!
   if (typeof window !== 'undefined' && window.location?.origin) {
     const origin = window.location.origin.replace(/\/+$/, '');
     const cleanPath = path ? (path.startsWith('/') ? path : `/${path}`) : '';
     return `${origin}${cleanPath}`;
   }
 
-  // 2. Server context: Check environment variables
-  const vercelProdUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL;
+  // 2. Server context: Check development vs production
   let url = '';
 
-  // If NEXT_PUBLIC_SITE_URL is explicitly configured and not localhost, use it
-  if (process.env.NEXT_PUBLIC_SITE_URL && !process.env.NEXT_PUBLIC_SITE_URL.includes('localhost')) {
-    url = process.env.NEXT_PUBLIC_SITE_URL;
-  } else if (process.env.NEXT_PUBLIC_APP_URL && !process.env.NEXT_PUBLIC_APP_URL.includes('localhost')) {
-    url = process.env.NEXT_PUBLIC_APP_URL;
-  } else if (vercelProdUrl) {
-    url = `https://${vercelProdUrl}`;
+  if (isDevelopmentMode()) {
+    url = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL || LOCAL_DEV_SITE_URL;
   } else {
-    url = 'https://synapse-web-frontend-vercel.vercel.app';
+    // Production server context
+    const configuredUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL;
+    if (configuredUrl && !configuredUrl.includes('localhost') && !configuredUrl.includes('127.0.0.1')) {
+      url = configuredUrl;
+    } else if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+      url = `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+    } else {
+      url = PRODUCTION_SITE_URL;
+    }
   }
 
   // Ensure url has a protocol
@@ -73,29 +90,37 @@ export function getRequestOrigin(request: Request): string {
 
 /**
  * Canonical public URL for sharing notes, whiteboards, canvases, and workspace invites.
- * Guaranteed to use the live active domain (synapse-web-frontend-vercel.vercel.app).
+ * In development mode: returns http://localhost:3000 (or active localhost origin).
+ * In production mode: returns https://synapse-web-frontend-vercel.vercel.app (or custom production domain).
  */
 export function getPublicSiteUrl(path: string = ''): string {
   let baseUrl = '';
 
-  // 1. If in browser and on a real non-localhost domain (e.g. *.vercel.app or custom domain)
+  // 1. Browser context
   if (typeof window !== 'undefined' && window.location?.origin) {
     const origin = window.location.origin.replace(/\/+$/, '');
-    if (!origin.includes('localhost') && !origin.includes('127.0.0.1')) {
-      baseUrl = origin;
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+    if (isDevelopmentMode() || isLocal) {
+      baseUrl = origin; // e.g. http://localhost:3000
+    } else {
+      baseUrl = origin; // e.g. https://synapse-web-frontend-vercel.vercel.app
     }
   }
 
-  // 2. Environment variables (ignoring localhost)
+  // 2. Server context
   if (!baseUrl) {
-    const configuredUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL;
-    if (configuredUrl && !configuredUrl.includes('localhost')) {
-      baseUrl = configuredUrl;
-    } else if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
-      baseUrl = `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+    if (isDevelopmentMode()) {
+      baseUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL || LOCAL_DEV_SITE_URL;
     } else {
-      // Guaranteed live production domain
-      baseUrl = 'https://synapse-web-frontend-vercel.vercel.app';
+      const configuredUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL;
+      if (configuredUrl && !configuredUrl.includes('localhost') && !configuredUrl.includes('127.0.0.1')) {
+        baseUrl = configuredUrl;
+      } else if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+        baseUrl = `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+      } else {
+        baseUrl = PRODUCTION_SITE_URL;
+      }
     }
   }
 

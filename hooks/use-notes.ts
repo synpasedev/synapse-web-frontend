@@ -3,8 +3,9 @@ import { localDb } from '@/lib/dexie/db';
 import { syncEngine } from '@/lib/dexie/sync-engine';
 import { ensureSeedData } from '@/lib/dexie/seed';
 import { getCurrentUserInfo } from '@/hooks/use-auth';
-import { Note } from '@/types/domain';
+import { Note, Block } from '@/types/domain';
 import { broadcastTabSync } from '@/lib/dexie/tab-sync';
+import { synapseRealtime } from '@/lib/realtime/ws-client';
 
 export function useNotes(workspaceId: string) {
   return useQuery({
@@ -19,7 +20,10 @@ export function useNotes(workspaceId: string) {
           if (res.ok) {
             const json = await res.json();
             const remoteNotes: Note[] = json.data || [];
+            const remoteMap = new Map<string, Note>();
+
             for (const remote of remoteNotes) {
+              remoteMap.set(remote.id, remote);
               const local = await localDb.notes.get(remote.id);
               if (!local) {
                 await localDb.notes.put(remote);
@@ -30,6 +34,44 @@ export function useNotes(workspaceId: string) {
                   await localDb.notes.put({ ...local, ...remote });
                 }
               }
+            }
+
+            // BIDIRECTIONAL SYNC:
+            // Ensure local notes that are not on the server (or fresher locally) are pushed to the server!
+            const localNotes = await localDb.notes
+              .where('workspace_id')
+              .equals(workspaceId)
+              .and((n) => !n.is_archived)
+              .toArray();
+
+            const notesToPush = localNotes.filter((local) => {
+              const remote = remoteMap.get(local.id);
+              if (!remote) return true;
+              return new Date(local.updated_at).getTime() > new Date(remote.updated_at).getTime();
+            });
+
+            if (notesToPush.length > 0) {
+              fetch('/api/notes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ notes: notesToPush, workspaceId }),
+              }).catch((err) => console.warn('[useNotes] Notes sync warning:', err));
+
+              const noteIdsToPush = notesToPush.map((n) => n.id);
+              localDb.blocks
+                .where('note_id')
+                .anyOf(noteIdsToPush)
+                .toArray()
+                .then((blocksToPush) => {
+                  if (blocksToPush.length > 0) {
+                    fetch('/api/blocks', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ workspaceId, blocks: blocksToPush }),
+                    }).catch((err) => console.warn('[useNotes] Blocks sync warning:', err));
+                  }
+                })
+                .catch(() => {});
             }
           }
         } catch (err) {
@@ -45,7 +87,6 @@ export function useNotes(workspaceId: string) {
 
       return notes.reverse();
     },
-    refetchInterval: 4000,
     refetchOnWindowFocus: true,
   });
 }
@@ -67,6 +108,12 @@ export function useNote(noteId: string) {
               if (!local || new Date(remote.updated_at).getTime() > new Date(local.updated_at).getTime()) {
                 await localDb.notes.put({ ...(local || {}), ...remote });
               }
+              if (Array.isArray((remote as any).blocks) && (remote as any).blocks.length > 0) {
+                const localBlockCount = await localDb.blocks.where('note_id').equals(noteId).count();
+                if (localBlockCount === 0) {
+                  await localDb.blocks.bulkPut((remote as any).blocks);
+                }
+              }
             }
           }
         } catch (err) {
@@ -78,7 +125,6 @@ export function useNote(noteId: string) {
       return note || null;
     },
     enabled: Boolean(noteId),
-    refetchInterval: 3000,
     refetchOnWindowFocus: true,
   });
 }
@@ -102,8 +148,9 @@ export function useCreateNote() {
       const user = getCurrentUserInfo();
       const authorIdentifier = user.name || user.email || 'local-user';
 
+      const newNoteId = crypto.randomUUID();
       const newNote: Note = {
-        id: crypto.randomUUID(),
+        id: newNoteId,
         workspace_id: workspaceId,
         parent_id: parentId,
         title,
@@ -121,7 +168,28 @@ export function useCreateNote() {
         version: 1,
       };
 
-      await localDb.notes.put(newNote);
+      const initialBlock: Block = {
+        id: crypto.randomUUID(),
+        note_id: newNoteId,
+        workspace_id: workspaceId,
+        type: 'paragraph',
+        content: { text: '' },
+        properties: {},
+        sort_order: 1000,
+        created_by: authorIdentifier,
+        updated_by: authorIdentifier,
+        author_name: user.name,
+        author_email: user.email,
+        created_at: now,
+        updated_at: now,
+        parent_block_id: null,
+        version: 1,
+      };
+
+      await localDb.transaction('rw', [localDb.notes, localDb.blocks], async () => {
+        await localDb.notes.put(newNote);
+        await localDb.blocks.put(initialBlock);
+      });
 
       // Dispatch to shared server store
       fetch('/api/notes', {
@@ -130,12 +198,26 @@ export function useCreateNote() {
         body: JSON.stringify(newNote),
       }).catch((err) => console.warn('Failed to broadcast new note:', err));
 
+      fetch('/api/blocks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          noteId: newNoteId,
+          workspaceId,
+          blocks: [initialBlock],
+        }),
+      }).catch((err) => console.warn('Failed to broadcast new note blocks:', err));
+
       await syncEngine.enqueue({
         table: 'notes',
         operation: 'UPSERT',
         entityId: newNote.id,
         payload: newNote,
       });
+
+      // Instantly broadcast new note and starter blocks over WebSocket
+      synapseRealtime.sendNoteChange(newNote.workspace_id, newNote);
+      synapseRealtime.sendBlocksChange(workspaceId, newNoteId, [initialBlock]);
 
       return newNote;
     },
@@ -186,6 +268,9 @@ export function useUpdateNote() {
         entityId: id,
         payload: updated,
       });
+
+      // Instantly broadcast note update over WebSocket (chat-style)
+      synapseRealtime.sendNoteChange(updated.workspace_id, updated);
 
       return updated;
     },

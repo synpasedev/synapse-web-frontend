@@ -11,7 +11,8 @@ interface UIState {
   isCommandPaletteOpen: boolean;
   setCommandPaletteOpen: (open: boolean) => void;
   isTemplateModalOpen: boolean;
-  setTemplateModalOpen: (open: boolean) => void;
+  templateModalOptions?: { preselectedTemplateId?: string | null; targetNoteId?: string | null };
+  setTemplateModalOpen: (open: boolean, options?: { preselectedTemplateId?: string | null; targetNoteId?: string | null }) => void;
   isAIModalOpen: boolean;
   setAIModalOpen: (open: boolean) => void;
   aiPromptContext: string;
@@ -36,7 +37,9 @@ export const useUIStore = create<UIState>((set) => ({
   isCommandPaletteOpen: false,
   setCommandPaletteOpen: (open) => set({ isCommandPaletteOpen: open }),
   isTemplateModalOpen: false,
-  setTemplateModalOpen: (open) => set({ isTemplateModalOpen: open }),
+  templateModalOptions: undefined,
+  setTemplateModalOpen: (open, options) =>
+    set({ isTemplateModalOpen: open, templateModalOptions: open ? options : undefined }),
   isAIModalOpen: false,
   setAIModalOpen: (open) => set({ isAIModalOpen: open }),
   aiPromptContext: '',

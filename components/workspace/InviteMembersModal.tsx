@@ -59,9 +59,7 @@ function getRecipientName(email: string): string {
 function buildEmailTemplate(recipientEmail: string, inviteUrl?: string): string {
   const username = getRecipientName(recipientEmail);
   const siteUrl = getPublicSiteUrl();
-  const safeInviteUrl = inviteUrl
-    ? (inviteUrl.includes('localhost') ? inviteUrl.replace(/^https?:\/\/localhost(:\d+)?/, siteUrl) : inviteUrl)
-    : undefined;
+  const safeInviteUrl = inviteUrl;
 
   return `Hey ${username}, hope you’re doing well!
 I am Subhadeep and I’ve been working on an application called Synapse — a productivity and knowledge-management platform with combined features of tools like Notion, Obsidian, Evernote, and Trello, with a few additional features of its own.
@@ -272,10 +270,7 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
   };
 
   const getEnrichedInviteUrl = (code: string, targetEmail?: string) => {
-    const isLocalhost =
-      typeof window !== 'undefined' &&
-      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-    const base = isLocalhost ? window.location.origin : getPublicSiteUrl();
+    const base = getPublicSiteUrl();
     const params = new URLSearchParams();
     if (workspaceId) params.set('ws', workspaceId);
     if (workspace?.name) params.set('name', workspace.name);
@@ -792,7 +787,7 @@ export const InviteMembersModal: React.FC<{ workspaceId: string }> = ({ workspac
                     {buildEmailTemplate(
                       activeTemplate.email,
                       activeTemplate.code
-                        ? getPublicSiteUrl(`/invite/${activeTemplate.code}`)
+                        ? getEnrichedInviteUrl(activeTemplate.code, activeTemplate.email)
                         : undefined
                     )}
                   </div>

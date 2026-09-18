@@ -28,7 +28,8 @@ import { markdownToHTML, isMarkdown } from '@/lib/markdown';
 import { GoogleDocSyncBadge } from '@/components/sync/GoogleDocSyncBadge';
 import { useGoogleSync } from '@/hooks/use-google-sync';
 import { ShareButton } from '@/components/share/ShareButton';
-import { Star, Clock, Layers, Users } from 'lucide-react';
+import { useUIStore } from '@/stores/use-ui-store';
+import { Star, Clock, Layers, Users, LayoutTemplate } from 'lucide-react';
 
 const lowlight = createLowlight(common);
 
@@ -55,6 +56,7 @@ interface BlockEditorProps {
 }
 
 export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks }) => {
+  const { setTemplateModalOpen } = useUIStore();
   const { mutate: saveBlocks } = useMutateBlocks(note.id);
   const { mutate: updateNote } = useUpdateNote();
 
@@ -393,6 +395,15 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
 
             <button
               type="button"
+              onClick={() => setTemplateModalOpen(true, { targetNoteId: note.id })}
+              className="p-2 rounded-lg border border-border/50 hover:bg-secondary/60 text-muted-foreground/70 hover:text-foreground transition-colors cursor-pointer"
+              title="Apply Blueprint or Template to this note"
+            >
+              <LayoutTemplate className="w-3.5 h-3.5" />
+            </button>
+
+            <button
+              type="button"
               onClick={handleToggleFavorite}
               className={`p-2 rounded-lg border border-border/50 hover:bg-secondary/60 transition-colors cursor-pointer ${
                 note.is_favorite ? 'text-amber-400/90 bg-amber-400/10' : 'text-muted-foreground/70'
@@ -414,6 +425,21 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
           placeholder="Untitled Note"
           className="w-full text-2xl sm:text-3xl font-bold bg-transparent border-none outline-none text-foreground placeholder:text-muted-foreground/30 tracking-tight cursor-text focus:ring-0"
         />
+
+        {/* Empty Note Template Quick Prompt (Notion-style) */}
+        {(!editor || editor.isEmpty) && (
+          <div className="flex items-center gap-2 mt-2 mb-1 text-xs text-muted-foreground animate-in fade-in duration-150">
+            <span className="text-[11px] font-medium text-muted-foreground/70">Empty note:</span>
+            <button
+              type="button"
+              onClick={() => setTemplateModalOpen(true, { targetNoteId: note.id })}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 font-medium transition-colors cursor-pointer border border-indigo-500/20 text-xs"
+            >
+              <LayoutTemplate className="w-3.5 h-3.5" />
+              <span>Choose a Template Blueprint</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* AI Assistant Bar */}

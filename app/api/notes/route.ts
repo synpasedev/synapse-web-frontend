@@ -72,80 +72,92 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const workspaceId = body.workspace_id || body.workspaceId || 'ws-default-synapse';
-    const {
-      id,
-      title = 'Untitled Note',
-      icon = '📄',
-      parentId = null,
-      is_favorite = false,
-      is_archived = false,
-      author_name,
-      author_email,
-      created_by,
-      updated_by,
-      version = 1,
-    } = body;
+    const defaultWorkspaceId = body.workspace_id || body.workspaceId || 'ws-default-synapse';
 
-    const now = new Date().toISOString();
+    const incomingNotes: any[] = Array.isArray(body)
+      ? body
+      : Array.isArray(body.notes)
+      ? body.notes
+      : [body];
 
-    if (serverStore.isWorkspaceDeleted(workspaceId)) {
-      return NextResponse.json(
-        { error: 'Workspace has been deleted', workspaceDeleted: true },
-        { status: 410 }
-      );
+    if (incomingNotes.length === 0) {
+      return NextResponse.json({ error: 'No notes provided' }, { status: 400 });
     }
 
-    const email = author_email || body.email || body.userEmail;
-    if (email && serverStore.isEvicted(workspaceId, email)) {
+    const now = new Date().toISOString();
+    const savedNotes: StoredNote[] = [];
+
+    for (const item of incomingNotes) {
+      const workspaceId = item.workspace_id || item.workspaceId || defaultWorkspaceId;
+
+      if (serverStore.isWorkspaceDeleted(workspaceId)) {
+        continue;
+      }
+
+      const email = item.author_email || item.email || body.author_email || body.email || body.userEmail;
+      if (email && serverStore.isEvicted(workspaceId, email)) {
+        continue;
+      }
+
+      const noteToSave: StoredNote = {
+        id: item.id || `note-${crypto.randomUUID().slice(0, 8)}`,
+        workspace_id: workspaceId,
+        parent_id: item.parent_id !== undefined ? item.parent_id : (item.parentId || null),
+        title: item.title !== undefined ? item.title : 'Untitled Note',
+        icon: item.icon !== undefined ? item.icon : '📄',
+        is_archived: Boolean(item.is_archived),
+        is_favorite: Boolean(item.is_favorite),
+        version: item.version || 1,
+        author_name: item.author_name,
+        author_email: item.author_email,
+        created_by: item.created_by || 'system',
+        updated_by: item.updated_by || 'system',
+        created_at: item.created_at || now,
+        updated_at: item.updated_at || now,
+      };
+
+      // Save to server store (memory + disk)
+      const saved = serverStore.saveNote(noteToSave);
+      savedNotes.push(saved);
+
+      // Also attempt Supabase upsert
+      if (isSupabaseConfigured()) {
+        try {
+          const supabase = await createServerSupabaseClient();
+          await supabase.from('notes').upsert({
+            id: noteToSave.id,
+            workspace_id: noteToSave.workspace_id,
+            parent_id: noteToSave.parent_id,
+            title: noteToSave.title,
+            icon: noteToSave.icon,
+            is_archived: noteToSave.is_archived,
+            is_favorite: noteToSave.is_favorite,
+            version: noteToSave.version,
+            created_at: noteToSave.created_at,
+            updated_at: noteToSave.updated_at,
+          });
+        } catch (err) {
+          // Fallback
+        }
+      }
+    }
+
+    if (savedNotes.length === 0 && incomingNotes.length > 0) {
       return NextResponse.json(
-        { error: 'Access revoked. You have been removed from this workspace.', evicted: true },
+        { error: 'Workspace has been deleted or access was revoked' },
         { status: 403 }
       );
     }
 
-    const noteToSave: StoredNote = {
-      id: id || `note-${crypto.randomUUID().slice(0, 8)}`,
-      workspace_id: workspaceId,
-      parent_id: parentId,
-      title,
-      icon,
-      is_archived,
-      is_favorite,
-      version,
-      author_name,
-      author_email,
-      created_by: created_by || 'system',
-      updated_by: updated_by || 'system',
-      created_at: body.created_at || now,
-      updated_at: body.updated_at || now,
-    };
-
-    // Save to server store (memory + disk)
-    const saved = serverStore.saveNote(noteToSave);
-
-    // Also attempt Supabase upsert
-    if (isSupabaseConfigured()) {
-      try {
-        const supabase = await createServerSupabaseClient();
-        await supabase.from('notes').upsert({
-          id: noteToSave.id,
-          workspace_id: noteToSave.workspace_id,
-          parent_id: noteToSave.parent_id,
-          title: noteToSave.title,
-          icon: noteToSave.icon,
-          is_archived: noteToSave.is_archived,
-          is_favorite: noteToSave.is_favorite,
-          version: noteToSave.version,
-          created_at: noteToSave.created_at,
-          updated_at: noteToSave.updated_at,
-        });
-      } catch (err) {
-        // Fallback
-      }
-    }
-
-    return NextResponse.json({ data: saved, message: 'Note saved successfully' }, { status: 201 });
+    const isBatch = Array.isArray(body) || Array.isArray(body.notes);
+    return NextResponse.json(
+      {
+        data: isBatch ? savedNotes : savedNotes[0],
+        total: savedNotes.length,
+        message: 'Note(s) saved successfully',
+      },
+      { status: 201 }
+    );
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 400 });
   }

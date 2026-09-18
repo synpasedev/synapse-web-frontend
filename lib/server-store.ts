@@ -413,6 +413,32 @@ export const serverStore = {
     return all;
   },
 
+  getBlocksByWorkspace: (workspaceId: string): StoredBlock[] => {
+    const all = global.__synapse_blocks || [];
+    return all.filter((b) => b.workspace_id === workspaceId);
+  },
+
+  bulkSaveBlocks: (blocks: StoredBlock[], workspaceId?: string): StoredBlock[] => {
+    const all = global.__synapse_blocks || [];
+    const blockMap = new Map<string, StoredBlock>(all.map((b) => [b.id, b]));
+    const saved: StoredBlock[] = [];
+
+    for (const b of blocks) {
+      const formatted: StoredBlock = {
+        ...b,
+        workspace_id: workspaceId || b.workspace_id || 'ws-default-synapse',
+        updated_at: b.updated_at || new Date().toISOString(),
+      };
+      blockMap.set(formatted.id, formatted);
+      saved.push(formatted);
+    }
+
+    const updated = Array.from(blockMap.values());
+    global.__synapse_blocks = updated;
+    writeJsonFile('blocks.json', updated);
+    return saved;
+  },
+
   saveBlocks: (noteId: string, blocks: StoredBlock[], workspaceId?: string): StoredBlock[] => {
     const all = global.__synapse_blocks || [];
     // Remove old blocks for this note
@@ -435,6 +461,12 @@ export const serverStore = {
 
   // Workspace Members
   getWorkspaceMembers: (workspaceId: string): StoredWorkspaceMember[] => {
+    try {
+      const diskMembers = readJsonFile<StoredWorkspaceMember[]>('members.json', []);
+      if (diskMembers && diskMembers.length > 0) {
+        global.__synapse_members = diskMembers;
+      }
+    } catch {}
     const all = global.__synapse_members || [];
     return all.filter((m) => m.workspace_id === workspaceId);
   },

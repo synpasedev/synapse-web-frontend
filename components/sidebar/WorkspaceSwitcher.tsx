@@ -35,10 +35,11 @@ export const WorkspaceSwitcher: React.FC<{ workspace: Workspace | null }> = ({ w
     setWorkspaceSettingsOpen,
   } = useUIStore();
 
-  const privateWorkspaces = allWorkspaces.filter((w) => (w.type || 'private') === 'private');
-  const sharedWorkspaces = allWorkspaces.filter((w) => w.type === 'shared');
+  const isWorkspaceShared = (w: Workspace) => w.type === 'shared' || (w.members_count || 1) > 1;
+  const privateWorkspaces = allWorkspaces.filter((w) => !isWorkspaceShared(w));
+  const sharedWorkspaces = allWorkspaces.filter((w) => isWorkspaceShared(w));
 
-  const isShared = workspace?.type === 'shared';
+  const isShared = workspace ? isWorkspaceShared(workspace) : false;
 
   // Collapsible dropdown accordions inside the menu (Notion-style)
   const [isSharedOpen, setIsSharedOpen] = useState(true);

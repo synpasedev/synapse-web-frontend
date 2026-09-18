@@ -32,17 +32,20 @@ export async function ensureSeedData(): Promise<void> {
       }
       const member = await localDb.workspace_members.where('workspace_id').equals(ws.id).first();
       if (!member) {
-        await localDb.workspace_members.put({
-          id: `mem-${ws.id}-owner`,
-          workspace_id: ws.id,
-          user_id: ws.owner_id || 'local-user-1',
-          role: 'owner',
-          email: currentEmail,
-          created_at: ws.created_at || new Date().toISOString(),
-          updated_at: ws.updated_at || new Date().toISOString(),
-        });
+        if (ws.role === 'owner' || ws.id === 'ws-default-synapse' || !ws.role) {
+          await localDb.workspace_members.put({
+            id: `mem-${ws.id}-owner`,
+            workspace_id: ws.id,
+            user_id: ws.owner_id || 'local-user-1',
+            role: 'owner',
+            email: currentEmail,
+            created_at: ws.created_at || new Date().toISOString(),
+            updated_at: ws.updated_at || new Date().toISOString(),
+          });
+        }
       } else if (
         member.role === 'owner' &&
+        (ws.role === 'owner' || ws.id === 'ws-default-synapse') &&
         (!member.email || member.email === 'user@synapse.local' || member.email === 'guest@synapse.local') &&
         currentEmail !== 'user@synapse.local'
       ) {
@@ -51,6 +54,14 @@ export async function ensureSeedData(): Promise<void> {
         });
       }
     }
+
+    const templateCount = await localDb.templates.count();
+    if (templateCount === 0) {
+      const { getBuiltinTemplates } = await import('@/lib/templates/builtin-templates');
+      const wsId = existingWorkspaces[0]?.id || 'ws-default-synapse';
+      await localDb.templates.bulkPut(getBuiltinTemplates(wsId));
+    }
+
     return; // Already seeded
   }
 

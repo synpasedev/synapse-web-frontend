@@ -15,7 +15,7 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({ workspaceId })
   const { data: invites = [] } = useWorkspaceInvites(workspaceId);
   const { setInviteModalOpen } = useUIStore();
 
-  const isShared = workspace?.type === 'shared';
+  const isShared = workspace?.type === 'shared' || members.length > 1;
 
   const pendingInvites = invites.filter(
     (i) => i.status === 'pending' && (!i.expires_at || new Date(i.expires_at) > new Date())
@@ -23,9 +23,18 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({ workspaceId })
   const acceptedInvites = invites.filter((i) => i.status === 'accepted' || i.status === 'consumed');
   const rejectedInvites = invites.filter((i) => i.status === 'rejected');
 
+  // Deterministic sort so all users see identical avatars in the exact same order
+  const sortedMembers = [...members].sort((a, b) => {
+    const roleRank: Record<string, number> = { owner: 0, admin: 1, editor: 2, viewer: 3 };
+    const rankA = roleRank[a.role] ?? 99;
+    const rankB = roleRank[b.role] ?? 99;
+    if (rankA !== rankB) return rankA - rankB;
+    return (a.name || a.email || '').localeCompare(b.name || b.email || '');
+  });
+
   // Limit display to first 5 avatars
-  const displayMembers = members.slice(0, 5);
-  const overflowCount = members.length > 5 ? members.length - 5 : 0;
+  const displayMembers = sortedMembers.slice(0, 5);
+  const overflowCount = sortedMembers.length > 5 ? sortedMembers.length - 5 : 0;
 
   return (
     <header className="w-full border-b border-border/40 bg-background/80 backdrop-blur-md sticky top-0 z-30 px-4 sm:px-6 py-2 flex items-center justify-between gap-3 min-h-[48px]">
