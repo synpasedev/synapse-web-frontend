@@ -8,7 +8,7 @@ import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 import { UserProfile } from './UserProfile';
 import { NoteTree } from './NoteTree';
 import { CanvasList } from './CanvasList';
-import { useWorkspace, useWorkspaceMembers, useWorkspaceInvites } from '@/hooks/use-workspace';
+import { useWorkspace } from '@/hooks/use-workspace';
 import { useNotes, useCreateNote } from '@/hooks/use-notes';
 import { useWhiteboards, useCreateWhiteboard } from '@/hooks/use-whiteboard';
 import { useDatabases } from '@/hooks/use-databases';
@@ -33,8 +33,6 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Filter,
-  Users,
-  UserPlus,
 } from 'lucide-react';
 
 const DEFAULT_SIDEBAR_WIDTH = 260;
@@ -57,8 +55,6 @@ export const AppSidebar: React.FC<{ workspaceId: string }> = ({ workspaceId }) =
     toggleMobileSidebar,
   } = useUIStore();
   const { data: workspace } = useWorkspace(workspaceId);
-  const { data: members = [] } = useWorkspaceMembers(workspaceId);
-  const { data: invites = [] } = useWorkspaceInvites(workspaceId);
   const { data: notes } = useNotes(workspaceId);
   const { mutateAsync: createNote, isPending: isCreatingNote } = useCreateNote();
   const { data: whiteboards } = useWhiteboards(workspaceId);
@@ -89,7 +85,6 @@ export const AppSidebar: React.FC<{ workspaceId: string }> = ({ workspaceId }) =
     notes: true,
     whiteboards: true,
     databases: true,
-    team: true,
   });
 
   // ─── In-Sidebar Note Quick Filter ───
@@ -538,98 +533,6 @@ export const AppSidebar: React.FC<{ workspaceId: string }> = ({ workspaceId }) =
           )}
         </div>
 
-        {/* Team Collaborators Section */}
-        <div className="space-y-0.5">
-          <div className="group px-2.5 py-1 flex items-center justify-between text-[11px] font-semibold tracking-wider text-muted-foreground/60 hover:text-foreground uppercase transition-colors">
-            <button
-              type="button"
-              onClick={() => toggleSection('team')}
-              className="flex items-center gap-1 hover:text-foreground transition-colors cursor-pointer group-hover:text-foreground flex-1 text-left"
-            >
-              <ChevronRight
-                className={`w-3 h-3 text-muted-foreground/60 group-hover:text-foreground transition-transform duration-150 ${
-                  expandedSections.team ? 'rotate-90' : ''
-                }`}
-              />
-              <span className="flex items-center gap-1.5">
-                <Users className="w-3 h-3 text-indigo-400" />
-                <span>Team ({members.length})</span>
-              </span>
-            </button>
-
-            <div className="flex items-center gap-0.5">
-              <button
-                type="button"
-                onClick={() => {
-                  setInviteModalOpen(true);
-                  onClose?.();
-                }}
-                className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-secondary/70 text-muted-foreground/60 hover:text-foreground transition-all cursor-pointer"
-                title="Manage Team & Invites"
-              >
-                <Plus className="w-3 h-3" />
-              </button>
-            </div>
-          </div>
-
-          {expandedSections.team && (
-            <div className="space-y-0.5 px-1.5 mt-0.5">
-              {members.map((m) => {
-                const isOwner = m.role === 'owner';
-                const name = m.name || m.email?.split('@')[0] || 'Member';
-                return (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => {
-                      setInviteModalOpen(true);
-                      onClose?.();
-                    }}
-                    className="w-full group flex items-center justify-between px-2 py-1 rounded-md text-[12px] text-muted-foreground hover:text-foreground hover:bg-neutral-200/50 dark:hover:bg-white/[0.05] transition-colors text-left cursor-pointer"
-                    title={`${name} (${m.role})`}
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div
-                        className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white shrink-0 ${
-                          isOwner
-                            ? 'bg-amber-500'
-                            : m.role === 'admin'
-                            ? 'bg-purple-500'
-                            : 'bg-blue-500'
-                        }`}
-                      >
-                        {name.charAt(0).toUpperCase()}
-                      </div>
-                      <span className="truncate">{name}</span>
-                    </div>
-                    <span className="text-[10px] uppercase font-mono text-muted-foreground/60 group-hover:text-muted-foreground shrink-0">
-                      {m.role}
-                    </span>
-                  </button>
-                );
-              })}
-
-              <button
-                type="button"
-                onClick={() => {
-                  setInviteModalOpen(true);
-                  onClose?.();
-                }}
-                className="w-full flex items-center justify-between px-2 py-1 rounded-md text-[12px] text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 transition-colors text-left cursor-pointer"
-              >
-                <div className="flex items-center gap-2">
-                  <UserPlus className="w-3.5 h-3.5" />
-                  <span>Invite Member</span>
-                </div>
-                {invites.some((i) => i.status === 'pending') && (
-                  <span className="text-[10px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded-full font-mono font-medium">
-                    {invites.filter((i) => i.status === 'pending').length} pending
-                  </span>
-                )}
-              </button>
-            </div>
-          )}
-        </div>
       </div>
 
       {/* Notion-Style Docked Footer Utilities */}
