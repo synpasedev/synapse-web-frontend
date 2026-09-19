@@ -31,12 +31,25 @@ function writeJsonFile(filename, data) {
 const rooms = new Map(); // workspaceId -> Set<WebSocket>
 const clientMeta = new WeakMap();
 
+// Presence tracking for collaborative notes:
+// noteId -> Map<WebSocket, { user, activeBlockIndex, activeBlockId, lastActivity, isTyping }>
+const activeNoteEditors = new Map();
+// noteId -> Set<number> of active collision block indices
+const activeCollisionsByNote = new Map();
+
 const wss = new WebSocketServer({ port: PORT });
 
-console.log(`[ws-server] ⚡ Synapse Real-time WebSocket server running on ws://localhost:${PORT} (Event-Driven Mode)`);
+console.log(`[ws-server] ⚡ Synapse Real-time WebSocket server running on ws://localhost:${PORT} (Collaborative Multi-User Guard Mode)`);
 
 wss.on('connection', (ws) => {
-  const meta = { ws, workspaceId: '', isAlive: true };
+  const meta = {
+    ws,
+    workspaceId: '',
+    user: null,
+    activeNoteId: null,
+    activeBlockIndex: null,
+    isAlive: true,
+  };
   clientMeta.set(ws, meta);
 
   ws.on('pong', () => { meta.isAlive = true; });
@@ -100,6 +113,70 @@ function handleMessage(ws, meta, msg) {
       break;
     }
 
+    case 'NOTE_JOIN': {
+      const { workspaceId, noteId, user } = msg;
+      if (!noteId) return;
+      if (workspaceId) meta.workspaceId = workspaceId;
+      if (user) meta.user = user;
+      meta.activeNoteId = noteId;
+      meta.activeBlockIndex = -1;
+
+      if (!activeNoteEditors.has(noteId)) {
+        activeNoteEditors.set(noteId, new Map());
+      }
+      activeNoteEditors.get(noteId).set(ws, {
+        user: meta.user || user,
+        activeBlockIndex: -1,
+        activeBlockId: null,
+        lastActivity: Date.now(),
+        isTyping: false,
+      });
+
+      checkAndBroadcastCollisions(meta.workspaceId, noteId);
+      break;
+    }
+
+    case 'NOTE_LEAVE': {
+      const { noteId } = msg;
+      const targetNoteId = noteId || meta.activeNoteId;
+      if (targetNoteId && activeNoteEditors.has(targetNoteId)) {
+        const map = activeNoteEditors.get(targetNoteId);
+        map.delete(ws);
+        if (map.size === 0) {
+          activeNoteEditors.delete(targetNoteId);
+        } else {
+          checkAndBroadcastCollisions(meta.workspaceId, targetNoteId);
+        }
+      }
+      meta.activeNoteId = null;
+      meta.activeBlockIndex = null;
+      break;
+    }
+
+    case 'PRESENCE_EDITING': {
+      const { workspaceId, noteId, user, activeBlockIndex, activeBlockId, isTyping } = msg;
+      if (!noteId) return;
+      if (workspaceId) meta.workspaceId = workspaceId;
+      if (user) meta.user = user;
+      meta.activeNoteId = noteId;
+      meta.activeBlockIndex = typeof activeBlockIndex === 'number' ? activeBlockIndex : -1;
+
+      if (!activeNoteEditors.has(noteId)) {
+        activeNoteEditors.set(noteId, new Map());
+      }
+      const map = activeNoteEditors.get(noteId);
+      map.set(ws, {
+        user: meta.user || user,
+        activeBlockIndex: meta.activeBlockIndex,
+        activeBlockId: activeBlockId || null,
+        lastActivity: Date.now(),
+        isTyping: Boolean(isTyping),
+      });
+
+      checkAndBroadcastCollisions(meta.workspaceId, noteId);
+      break;
+    }
+
     case 'NOTE_CHANGE': {
       const { workspaceId, note, user } = msg;
       if (!workspaceId || !note) return;
@@ -114,7 +191,7 @@ function handleMessage(ws, meta, msg) {
       }
       writeJsonFile('notes.json', allNotes);
 
-      // Broadcast to room members immediately (like a chat message)
+      // Broadcast to room members immediately
       broadcastToRoom(workspaceId, {
         type: 'NOTE_UPDATED',
         workspaceId,
@@ -141,7 +218,7 @@ function handleMessage(ws, meta, msg) {
       }));
       writeJsonFile('blocks.json', [...kept, ...formatted]);
 
-      // Broadcast to room members immediately
+      // Broadcast to all room members immediately without delay
       broadcastToRoom(workspaceId, {
         type: 'BLOCKS_UPDATED',
         workspaceId,
@@ -150,6 +227,9 @@ function handleMessage(ws, meta, msg) {
         author: user || meta.user,
         timestamp: Date.now(),
       }, ws);
+
+      // Refresh collision check
+      checkAndBroadcastCollisions(workspaceId, noteId);
       break;
     }
 
@@ -177,23 +257,126 @@ function handleMessage(ws, meta, msg) {
   }
 }
 
-function leaveRoom(ws, meta) {
-  if (!meta || !meta.workspaceId) return;
-  const room = rooms.get(meta.workspaceId);
-  if (room) {
-    room.delete(ws);
-    if (room.size === 0) {
-      rooms.delete(meta.workspaceId);
-    } else {
-      broadcastToRoom(meta.workspaceId, {
-        type: 'MEMBER_LEFT',
-        workspaceId: meta.workspaceId,
-        user: meta.user,
-        activeMembers: room.size,
+/**
+ * Detects whether 2 or more distinct users are actively editing the same block index.
+ * Broadcasts COLLISION_ALERT or COLLISION_CLEAR accordingly.
+ */
+function checkAndBroadcastCollisions(workspaceId, noteId) {
+  if (!workspaceId || !noteId) return;
+  const editorsMap = activeNoteEditors.get(noteId);
+  if (!editorsMap) return;
+
+  const now = Date.now();
+  // Filter active editors who had activity within the last 5 seconds
+  const activeEntries = [];
+  for (const [clientWs, entry] of editorsMap.entries()) {
+    if (clientWs.readyState === WebSocket.OPEN && now - entry.lastActivity < 5000) {
+      activeEntries.push(entry);
+    } else if (clientWs.readyState !== WebSocket.OPEN) {
+      editorsMap.delete(clientWs);
+    }
+  }
+
+  // Group by block index
+  const blockIndexGroups = new Map(); // blockIndex -> Map<userId, user>
+  activeEntries.forEach((entry) => {
+    if (typeof entry.activeBlockIndex === 'number' && entry.activeBlockIndex >= 0) {
+      if (!blockIndexGroups.has(entry.activeBlockIndex)) {
+        blockIndexGroups.set(entry.activeBlockIndex, new Map());
+      }
+      const userKey = entry.user?.id || entry.user?.email || entry.user?.name || 'anonymous';
+      blockIndexGroups.get(entry.activeBlockIndex).set(userKey, entry.user || { name: 'Collaborator' });
+    }
+  });
+
+  if (!activeCollisionsByNote.has(noteId)) {
+    activeCollisionsByNote.set(noteId, new Set());
+  }
+  const currentCollisions = activeCollisionsByNote.get(noteId);
+  const newCollisions = new Set();
+
+  for (const [blockIdx, userMap] of blockIndexGroups.entries()) {
+    if (userMap.size >= 2) {
+      newCollisions.add(blockIdx);
+      const conflictingUsers = Array.from(userMap.values());
+      // Broadcast collision warning guard to everyone in the room
+      broadcastToRoom(workspaceId, {
+        type: 'COLLISION_ALERT',
+        workspaceId,
+        noteId,
+        activeBlockIndex: blockIdx,
+        users: conflictingUsers,
+        timestamp: now,
       });
     }
   }
+
+  // Check for resolved collisions
+  for (const prevBlockIdx of currentCollisions) {
+    if (!newCollisions.has(prevBlockIdx)) {
+      broadcastToRoom(workspaceId, {
+        type: 'COLLISION_CLEAR',
+        workspaceId,
+        noteId,
+        activeBlockIndex: prevBlockIdx,
+        timestamp: now,
+      });
+    }
+  }
+
+  activeCollisionsByNote.set(noteId, newCollisions);
+
+  // Broadcast overall active presence list for this note
+  const sanitizedPresence = activeEntries.map((e) => ({
+    user: e.user || { name: 'Collaborator' },
+    activeBlockIndex: e.activeBlockIndex,
+    activeBlockId: e.activeBlockId,
+    lastActivity: e.lastActivity,
+    isTyping: e.isTyping,
+  }));
+
+  broadcastToRoom(workspaceId, {
+    type: 'PRESENCE_UPDATED',
+    workspaceId,
+    noteId,
+    activeEditors: sanitizedPresence,
+    timestamp: now,
+  });
+}
+
+function leaveRoom(ws, meta) {
+  if (!meta) return;
+
+  // Clean from active note editors
+  if (meta.activeNoteId && activeNoteEditors.has(meta.activeNoteId)) {
+    const map = activeNoteEditors.get(meta.activeNoteId);
+    map.delete(ws);
+    if (map.size === 0) {
+      activeNoteEditors.delete(meta.activeNoteId);
+    } else if (meta.workspaceId) {
+      checkAndBroadcastCollisions(meta.workspaceId, meta.activeNoteId);
+    }
+  }
+
+  if (meta.workspaceId) {
+    const room = rooms.get(meta.workspaceId);
+    if (room) {
+      room.delete(ws);
+      if (room.size === 0) {
+        rooms.delete(meta.workspaceId);
+      } else {
+        broadcastToRoom(meta.workspaceId, {
+          type: 'MEMBER_LEFT',
+          workspaceId: meta.workspaceId,
+          user: meta.user,
+          activeMembers: room.size,
+        });
+      }
+    }
+  }
   meta.workspaceId = '';
+  meta.activeNoteId = null;
+  meta.activeBlockIndex = null;
 }
 
 function broadcastToRoom(workspaceId, message, senderWs) {
@@ -208,10 +391,34 @@ function broadcastToRoom(workspaceId, message, senderWs) {
   }
 }
 
-
-
-// Keepalive pings
+// Periodic presence maintenance and keepalive
 setInterval(() => {
+  // Check active collisions & sweep idle editors
+  for (const [noteId, map] of activeNoteEditors.entries()) {
+    let changed = false;
+    const now = Date.now();
+    for (const [ws, entry] of map.entries()) {
+      if (now - entry.lastActivity > 6000) {
+        if (entry.activeBlockIndex >= 0) {
+          entry.activeBlockIndex = -1;
+          entry.isTyping = false;
+          changed = true;
+        }
+      }
+    }
+    if (changed) {
+      // Find workspaceId from any client in that map
+      for (const [ws] of map.entries()) {
+        const meta = clientMeta.get(ws);
+        if (meta?.workspaceId) {
+          checkAndBroadcastCollisions(meta.workspaceId, noteId);
+          break;
+        }
+      }
+    }
+  }
+
+  // Ping clients
   wss.clients.forEach((ws) => {
     const meta = clientMeta.get(ws);
     if (!meta || !meta.isAlive) {
@@ -221,4 +428,4 @@ setInterval(() => {
     meta.isAlive = false;
     ws.ping();
   });
-}, 15000);
+}, 5000);

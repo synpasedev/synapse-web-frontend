@@ -10,7 +10,18 @@ export type RealtimeEventType =
   | 'NOTE_UPDATED'
   | 'BLOCKS_UPDATED'
   | 'MEMBER_JOINED'
-  | 'MEMBER_LEFT';
+  | 'MEMBER_LEFT'
+  | 'COLLISION_ALERT'
+  | 'COLLISION_CLEAR'
+  | 'PRESENCE_UPDATED';
+
+export interface ActiveEditorPresence {
+  user: { id?: string; name?: string; email?: string };
+  activeBlockIndex: number;
+  activeBlockId?: string | null;
+  lastActivity: number;
+  isTyping?: boolean;
+}
 
 export interface RealtimeEvent {
   type: RealtimeEventType;
@@ -20,6 +31,9 @@ export interface RealtimeEvent {
   notes?: Note[];
   blocks?: Block[];
   user?: any;
+  users?: any[];
+  activeBlockIndex?: number;
+  activeEditors?: ActiveEditorPresence[];
   activeMembers?: number;
   timestamp?: number;
 }
@@ -29,10 +43,11 @@ type Listener = (event: RealtimeEvent) => void;
 class SynapseRealtimeClient {
   private ws: WebSocket | null = null;
   private listeners: Set<Listener> = new Set();
+  private noteListeners: Map<string, Set<Listener>> = new Map();
   private currentWorkspaceId: string = '';
+  private currentActiveNoteId: string = '';
   private currentUser: { name?: string; email?: string; id?: string } | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
-  private fallbackInterval: NodeJS.Timeout | null = null;
   private _isConnected: boolean = false;
   private lastSyncTime: number = 0;
 
@@ -53,14 +68,46 @@ class SynapseRealtimeClient {
     };
   }
 
+  /**
+   * Direct 0ms note-level event subscription for BlockEditor.
+   * Receives BLOCKS_UPDATED, COLLISION_ALERT, COLLISION_CLEAR, and PRESENCE_UPDATED instantly.
+   */
+  public subscribeToNote(noteId: string, listener: Listener): () => void {
+    if (!this.noteListeners.has(noteId)) {
+      this.noteListeners.set(noteId, new Set());
+    }
+    this.noteListeners.get(noteId)!.add(listener);
+    return () => {
+      const set = this.noteListeners.get(noteId);
+      if (set) {
+        set.delete(listener);
+        if (set.size === 0) {
+          this.noteListeners.delete(noteId);
+        }
+      }
+    };
+  }
+
   private notify(event: RealtimeEvent) {
+    // 1. Notify global workspace listeners
     this.listeners.forEach((l) => {
       try {
         l(event);
       } catch (e) {
-        console.error('[RealtimeClient] Listener error:', e);
+        console.error('[RealtimeClient] Global listener error:', e);
       }
     });
+
+    // 2. Fast-path notify note-specific listeners
+    if (event.noteId && this.noteListeners.has(event.noteId)) {
+      this.noteListeners.get(event.noteId)!.forEach((l) => {
+        try {
+          l(event);
+        } catch (e) {
+          console.error('[RealtimeClient] Note listener error:', e);
+        }
+      });
+    }
   }
 
   private getWsUrl(): string {
@@ -90,6 +137,11 @@ class SynapseRealtimeClient {
         // If we were already in a workspace, re-join immediately
         if (this.currentWorkspaceId) {
           this.joinWorkspace(this.currentWorkspaceId, this.currentUser || undefined);
+        }
+
+        // If active in a note, re-join note room
+        if (this.currentActiveNoteId && this.currentWorkspaceId) {
+          this.joinNote(this.currentWorkspaceId, this.currentActiveNoteId, this.currentUser || undefined);
         }
       };
 
@@ -140,8 +192,65 @@ class SynapseRealtimeClient {
         })
       );
     } else {
-      // Fallback: pull HTTP sync immediately
       this.pullHttpSync(workspaceId);
+    }
+  }
+
+  public joinNote(workspaceId: string, noteId: string, user?: { name?: string; email?: string; id?: string }) {
+    if (!noteId) return;
+    this.currentActiveNoteId = noteId;
+    if (workspaceId) this.currentWorkspaceId = workspaceId;
+    if (user) this.currentUser = user;
+
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(
+        JSON.stringify({
+          type: 'NOTE_JOIN',
+          workspaceId: this.currentWorkspaceId,
+          noteId,
+          user: this.currentUser,
+        })
+      );
+    }
+  }
+
+  public leaveNote(workspaceId: string, noteId: string) {
+    if (this.currentActiveNoteId === noteId) {
+      this.currentActiveNoteId = '';
+    }
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(
+        JSON.stringify({
+          type: 'NOTE_LEAVE',
+          workspaceId: workspaceId || this.currentWorkspaceId,
+          noteId,
+        })
+      );
+    }
+  }
+
+  /**
+   * Broadcasts the user's active editing location and presence on a note block.
+   */
+  public sendPresenceEditing(
+    workspaceId: string,
+    noteId: string,
+    activeBlockIndex: number,
+    activeBlockId?: string,
+    isTyping: boolean = true
+  ) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(
+        JSON.stringify({
+          type: 'PRESENCE_EDITING',
+          workspaceId: workspaceId || this.currentWorkspaceId,
+          noteId,
+          activeBlockIndex,
+          activeBlockId,
+          isTyping,
+          user: this.currentUser,
+        })
+      );
     }
   }
 
@@ -267,14 +376,7 @@ class SynapseRealtimeClient {
       case 'BLOCKS_UPDATED': {
         const { workspaceId, noteId, blocks } = msg;
         if (noteId && Array.isArray(blocks)) {
-          await localDb.transaction('rw', [localDb.blocks], async () => {
-            const existing = await localDb.blocks.where('note_id').equals(noteId).toArray();
-            if (existing.length > 0) {
-              await localDb.blocks.bulkDelete(existing.map((b) => b.id));
-            }
-            await localDb.blocks.bulkPut(blocks);
-          });
-
+          // 1. Immediately notify note subscribers (BlockEditor) without waiting for Dexie transaction
           this.notify({
             type: 'BLOCKS_UPDATED',
             workspaceId,
@@ -282,8 +384,55 @@ class SynapseRealtimeClient {
             blocks,
             timestamp: Date.now(),
           });
+
+          // 2. Persist to Dexie asynchronously in background
+          localDb.transaction('rw', [localDb.blocks], async () => {
+            const existing = await localDb.blocks.where('note_id').equals(noteId).toArray();
+            if (existing.length > 0) {
+              await localDb.blocks.bulkDelete(existing.map((b) => b.id));
+            }
+            await localDb.blocks.bulkPut(blocks);
+          }).catch((err) => console.warn('[RealtimeClient] Dexie bulkPut warning:', err));
+
           broadcastTabSync({ type: 'NOTE_MUTATED', noteId, workspaceId });
         }
+        break;
+      }
+
+      case 'COLLISION_ALERT': {
+        const { workspaceId, noteId, activeBlockIndex, users, timestamp } = msg;
+        this.notify({
+          type: 'COLLISION_ALERT',
+          workspaceId,
+          noteId,
+          activeBlockIndex,
+          users,
+          timestamp: timestamp || Date.now(),
+        });
+        break;
+      }
+
+      case 'COLLISION_CLEAR': {
+        const { workspaceId, noteId, activeBlockIndex, timestamp } = msg;
+        this.notify({
+          type: 'COLLISION_CLEAR',
+          workspaceId,
+          noteId,
+          activeBlockIndex,
+          timestamp: timestamp || Date.now(),
+        });
+        break;
+      }
+
+      case 'PRESENCE_UPDATED': {
+        const { workspaceId, noteId, activeEditors, timestamp } = msg;
+        this.notify({
+          type: 'PRESENCE_UPDATED',
+          workspaceId,
+          noteId,
+          activeEditors,
+          timestamp: timestamp || Date.now(),
+        });
         break;
       }
 

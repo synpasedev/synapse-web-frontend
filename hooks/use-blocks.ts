@@ -72,6 +72,11 @@ export function useMutateBlocks(noteId: string) {
         updated_at: now,
       }));
 
+      // Immediately broadcast block edits over WebSocket (0ms latency, like chat)
+      const parentNote = await localDb.notes.get(noteId);
+      const wsId = parentNote?.workspace_id || enrichedBlocks[0]?.workspace_id || 'ws-default-synapse';
+      synapseRealtime.sendBlocksChange(wsId, noteId, enrichedBlocks);
+
       let toDeleteIds: string[] = [];
 
       // 1. Transactional Dexie update: replace existing blocks for this note atomically and touch note timestamp
@@ -92,11 +97,6 @@ export function useMutateBlocks(noteId: string) {
       });
 
       // 2. Dispatch to shared server store with workspaceId
-      const parentNote = await localDb.notes.get(noteId);
-      const wsId = parentNote?.workspace_id || enrichedBlocks[0]?.workspace_id || 'ws-default-synapse';
-
-      // Instantly broadcast block edits over WebSocket to all workspace members (chat-style)
-      synapseRealtime.sendBlocksChange(wsId, noteId, enrichedBlocks);
 
       fetch('/api/blocks', {
         method: 'POST',

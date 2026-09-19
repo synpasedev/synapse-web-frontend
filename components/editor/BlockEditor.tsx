@@ -29,7 +29,8 @@ import { GoogleDocSyncBadge } from '@/components/sync/GoogleDocSyncBadge';
 import { useGoogleSync } from '@/hooks/use-google-sync';
 import { ShareButton } from '@/components/share/ShareButton';
 import { useUIStore } from '@/stores/use-ui-store';
-import { Star, Clock, Layers, Users, LayoutTemplate } from 'lucide-react';
+import { synapseRealtime, RealtimeEvent, ActiveEditorPresence } from '@/lib/realtime/ws-client';
+import { Star, Clock, Layers, Users, LayoutTemplate, AlertTriangle, ShieldAlert, ArrowDown } from 'lucide-react';
 
 const lowlight = createLowlight(common);
 
@@ -55,6 +56,16 @@ interface BlockEditorProps {
   initialBlocks: Block[];
 }
 
+function getCurrentBlockIndex(ed: any): number {
+  if (!ed || !ed.state || !ed.state.selection) return 0;
+  try {
+    const { selection } = ed.state;
+    return selection.$from ? selection.$from.index(0) : 0;
+  } catch {
+    return 0;
+  }
+}
+
 export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks }) => {
   const { setTemplateModalOpen } = useUIStore();
   const { mutate: saveBlocks } = useMutateBlocks(note.id);
@@ -64,6 +75,12 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
   const titleDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const titleRef = useRef(note.title || '');
   const noteRef = useRef(note);
+
+  // Active presence & collision guard state
+  const [activeCollisions, setActiveCollisions] = useState<Map<number, any[]>>(new Map());
+  const [activeEditors, setActiveEditors] = useState<ActiveEditorPresence[]>([]);
+  const lastPresenceSentRef = useRef<{ time: number; blockIdx: number }>({ time: 0, blockIdx: -1 });
+  const currentBlockIndexRef = useRef<number>(-1);
 
   useEffect(() => {
     noteRef.current = note;
@@ -80,13 +97,149 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
   const editorRef = useRef<any>(null);
   const draftKey = useMemo(() => `synapse_draft_${note.id}`, [note.id]);
 
+  // Presence broadcaster: throttled to avoid flooding, broadcasts block movements & typing
+  const emitPresence = useCallback((blockIdx: number, isTyping: boolean = false) => {
+    currentBlockIndexRef.current = blockIdx;
+    const now = Date.now();
+    const last = lastPresenceSentRef.current;
+    if (now - last.time > 400 || blockIdx !== last.blockIdx || isTyping) {
+      lastPresenceSentRef.current = { time: now, blockIdx };
+      const activeBlockId = blocksRef.current[blockIdx]?.id;
+      synapseRealtime.sendPresenceEditing(note.workspace_id, note.id, blockIdx, activeBlockId, isTyping);
+    }
+  }, [note.workspace_id, note.id]);
+
+  // Synchronize remote blocks into TipTap editor without losing focus or resetting cursor
+  const handleRemoteBlocks = useCallback((remoteBlocks: Block[]) => {
+    if (!editorRef.current || !remoteBlocks || remoteBlocks.length === 0) return;
+    const editor = editorRef.current;
+    const isFocused = editor.isFocused;
+    const currentBlockIdx = getCurrentBlockIndex(editor);
+    const isActivelyTyping = Boolean(debounceTimerRef.current);
+
+    // If the user is actively typing in a block:
+    if (isFocused && isActivelyTyping) {
+      // Guard the user's active block so their words are never overwritten
+      const localJson = editor.getJSON();
+      const localNodes = localJson.content || [];
+      const remoteDoc = blocksToTipTapDoc(remoteBlocks);
+      const remoteNodes = remoteDoc.content || [];
+
+      // Merge: preserve local block at currentBlockIdx, update all other blocks from remote
+      const mergedNodes = remoteNodes.map((rNode: any, idx: number) => {
+        if (idx === currentBlockIdx && localNodes[idx]) {
+          return localNodes[idx]; // Preserve local active paragraph
+        }
+        return rNode;
+      });
+
+      const mergedDoc = { type: 'doc', content: mergedNodes };
+      if (JSON.stringify(mergedDoc) !== JSON.stringify(localJson)) {
+        const { from, to } = editor.state.selection;
+        editor.commands.setContent(mergedDoc, { emitUpdate: false });
+        try {
+          const docSize = editor.state.doc.content.size;
+          editor.commands.setTextSelection({
+            from: Math.max(0, Math.min(from, docSize)),
+            to: Math.max(0, Math.min(to, docSize)),
+          });
+        } catch {}
+      }
+      return;
+    }
+
+    // User is idle or reading: apply remote blocks cleanly while preserving cursor position
+    const newDoc = blocksToTipTapDoc(remoteBlocks);
+    const currentDoc = editor.getJSON();
+    if (JSON.stringify(newDoc) !== JSON.stringify(currentDoc)) {
+      blocksRef.current = remoteBlocks;
+      const { from, to } = editor.state.selection;
+      editor.commands.setContent(newDoc, { emitUpdate: false });
+      if (isFocused) {
+        try {
+          const docSize = editor.state.doc.content.size;
+          editor.commands.setTextSelection({
+            from: Math.max(0, Math.min(from, docSize)),
+            to: Math.max(0, Math.min(to, docSize)),
+          });
+        } catch {}
+      }
+    }
+  }, []);
+
+  // Direct Note-Level Real-Time WebSocket Subscription
+  useEffect(() => {
+    // Join note room
+    synapseRealtime.joinNote(note.workspace_id, note.id);
+
+    const unsubscribe = synapseRealtime.subscribeToNote(note.id, (event: RealtimeEvent) => {
+      switch (event.type) {
+        case 'BLOCKS_UPDATED': {
+          if (event.blocks && event.blocks.length > 0) {
+            handleRemoteBlocks(event.blocks);
+          }
+          break;
+        }
+
+        case 'COLLISION_ALERT': {
+          if (typeof event.activeBlockIndex === 'number' && Array.isArray(event.users)) {
+            setActiveCollisions((prev) => {
+              const next = new Map(prev);
+              next.set(event.activeBlockIndex!, event.users!);
+              return next;
+            });
+          }
+          break;
+        }
+
+        case 'COLLISION_CLEAR': {
+          if (typeof event.activeBlockIndex === 'number') {
+            setActiveCollisions((prev) => {
+              const next = new Map(prev);
+              next.delete(event.activeBlockIndex!);
+              return next;
+            });
+          }
+          break;
+        }
+
+        case 'PRESENCE_UPDATED': {
+          if (Array.isArray(event.activeEditors)) {
+            setActiveEditors(event.activeEditors);
+          }
+          break;
+        }
+
+        default:
+          break;
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      synapseRealtime.leaveNote(note.workspace_id, note.id);
+    };
+  }, [note.id, note.workspace_id, handleRemoteBlocks]);
+
+  // Synchronize initialBlocks on props change (e.g. navigation or refetch)
   useEffect(() => {
     blocksRef.current = initialBlocks;
-    if (editorRef.current && !editorRef.current.isFocused && !debounceTimerRef.current && initialBlocks && initialBlocks.length > 0) {
+    if (editorRef.current && !debounceTimerRef.current && initialBlocks && initialBlocks.length > 0) {
+      const isFocused = editorRef.current.isFocused;
       const newDoc = blocksToTipTapDoc(initialBlocks);
       const currentDoc = editorRef.current.getJSON();
       if (JSON.stringify(newDoc) !== JSON.stringify(currentDoc)) {
+        const { from, to } = editorRef.current.state.selection;
         editorRef.current.commands.setContent(newDoc, { emitUpdate: false });
+        if (isFocused) {
+          try {
+            const docSize = editorRef.current.state.doc.content.size;
+            editorRef.current.commands.setTextSelection({
+              from: Math.max(0, Math.min(from, docSize)),
+              to: Math.max(0, Math.min(to, docSize)),
+            });
+          } catch {}
+        }
       }
     }
   }, [initialBlocks]);
@@ -102,9 +255,7 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
             return parsed;
           }
         }
-      } catch (e) {
-        // Fallback to initialBlocks if draft parsing fails
-      }
+      } catch (e) {}
     }
     return blocksToTipTapDoc(initialBlocks);
   }, [initialBlocks, draftKey]);
@@ -126,12 +277,10 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
     }
     if (editorRef.current) {
       const json = editorRef.current.getJSON();
-      // 1. Synchronously commit draft to localStorage
       try {
         localStorage.setItem(draftKey, JSON.stringify(json));
       } catch (e) {}
 
-      // 2. Persist to IndexedDB
       const blocks = tipTapDocToBlocks(json, currentNote, blocksRef.current);
       blocksRef.current = blocks;
       saveBlocks(blocks);
@@ -147,12 +296,12 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
       editorRef.current = editor;
       const json = editor.getJSON();
 
-      // 1. Synchronous 0ms local disk buffer (survives sudden browser close/power loss)
+      // 1. Synchronous 0ms local disk buffer
       try {
         localStorage.setItem(draftKey, JSON.stringify(json));
       } catch (e) {}
 
-      // 2. Debounced IndexedDB & Sync Engine commit
+      // 2. Debounced save to IndexedDB & sync engine (80ms for ultra responsiveness)
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
       }
@@ -168,7 +317,7 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
           localStorage.removeItem(draftKey);
         } catch (e) {}
         onUserEditRef.current();
-      }, 150);
+      }, 80);
     },
     [note, saveBlocks, draftKey]
   );
@@ -202,7 +351,15 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
       MermaidExtension,
     ],
     content: initialContent,
-    onUpdate: handleUpdate,
+    onUpdate: ({ editor }) => {
+      handleUpdate({ editor });
+      const blockIdx = getCurrentBlockIndex(editor);
+      emitPresence(blockIdx, true);
+    },
+    onSelectionUpdate: ({ editor }) => {
+      const blockIdx = getCurrentBlockIndex(editor);
+      emitPresence(blockIdx, false);
+    },
     editorProps: {
       attributes: {
         class: 'ProseMirror focus:outline-none text-foreground leading-relaxed',
@@ -266,7 +423,7 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
         updates: { title: newTitle },
       });
       onUserEditRef.current();
-    }, 250);
+    }, 200);
   };
 
   const handleTitleBlur = (e?: React.FocusEvent<HTMLInputElement>) => {
@@ -329,6 +486,11 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
     const text = editor?.getText() || '';
     return text.trim() ? text.trim().split(/\s+/).length : 0;
   }, [editor?.getText()]);
+
+  // Filter out self from active editors if desired, or show all
+  const otherEditors = useMemo(() => {
+    return activeEditors.filter((e) => e.activeBlockIndex >= 0);
+  }, [activeEditors]);
 
   return (
     <div className="w-full max-w-3xl mx-auto px-4 sm:px-8 py-6 sm:py-10 pt-14 sm:pt-10">
@@ -426,6 +588,32 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
           className="w-full text-2xl sm:text-3xl font-bold bg-transparent border-none outline-none text-foreground placeholder:text-muted-foreground/30 tracking-tight cursor-text focus:ring-0"
         />
 
+        {/* Live Collaborators Presence Badges (>2 users support) */}
+        {otherEditors.length > 0 && (
+          <div className="flex items-center gap-1.5 mt-2.5 flex-wrap animate-in fade-in duration-200">
+            <span className="text-[11px] font-medium text-muted-foreground/70 flex items-center gap-1">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              Collaborators live:
+            </span>
+            {otherEditors.map((e, idx) => (
+              <span
+                key={`collab-${idx}`}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                title={`${e.user.name || 'User'} is currently at paragraph ${e.activeBlockIndex + 1}`}
+              >
+                <span>{e.user.name || 'Collaborator'}</span>
+                <span className="text-[9px] px-1 py-0.2 rounded bg-emerald-500/20 font-mono text-emerald-300">
+                  ¶{e.activeBlockIndex + 1}
+                </span>
+                {e.isTyping && <span className="text-[10px] animate-pulse">✎</span>}
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* Empty Note Template Quick Prompt (Notion-style) */}
         {(!editor || editor.isEmpty) && (
           <div className="flex items-center gap-2 mt-2 mb-1 text-xs text-muted-foreground animate-in fade-in duration-150">
@@ -441,6 +629,52 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ note, initialBlocks })
           </div>
         )}
       </div>
+
+      {/* Simultaneous Edit Collision Guard Warning Banner */}
+      {activeCollisions.size > 0 && (
+        <div className="space-y-2 mb-4 animate-in fade-in slide-in-from-top-2 duration-200">
+          {Array.from(activeCollisions.entries()).map(([blockIdx, users]) => {
+            const userNames = users.map((u) => u.name || u.email || 'Collaborator').join(', ');
+            return (
+              <div
+                key={`collision-${blockIdx}`}
+                className="flex items-start justify-between gap-3 p-3.5 rounded-xl border border-amber-500/40 bg-amber-500/10 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 backdrop-blur-md shadow-lg shadow-amber-500/5"
+              >
+                <div className="flex items-start gap-2.5">
+                  <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-500 shrink-0 mt-0.5">
+                    <AlertTriangle className="w-4 h-4 animate-bounce" />
+                  </div>
+                  <div className="text-xs sm:text-sm">
+                    <div className="font-semibold flex items-center gap-2">
+                      <span>Simultaneous Edit Warning</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-600 dark:text-amber-300 font-mono font-bold">
+                        Paragraph {blockIdx + 1}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-amber-800/90 dark:text-amber-300/90 leading-relaxed">
+                      Multiple users (<strong>{userNames}</strong>) are editing <strong>Paragraph {blockIdx + 1}</strong> at the same time. To avoid overwriting each other&apos;s words or characters, please coordinate or write in separate paragraphs.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (editor) {
+                      editor.commands.focus('end');
+                    }
+                  }}
+                  className="shrink-0 inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-900 dark:text-amber-100 font-medium transition-colors cursor-pointer border border-amber-500/30"
+                  title="Move cursor to the end of the note to start a new paragraph"
+                >
+                  <ArrowDown className="w-3 h-3" />
+                  <span>Jump to end</span>
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* AI Assistant Bar */}
       <AIAssistantBar
